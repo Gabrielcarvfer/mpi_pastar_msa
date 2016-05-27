@@ -1,0 +1,6 @@
+0000000000000000000000000000000000000000 51f338b66bdd0a70e6ea483ed25fd6ff5d0e466a gabrielcarvfer <gabrielcarvfer@gmail.com> 1462084603 -0300	commit (initial): Add .gitignore and .gitattributes.
+51f338b66bdd0a70e6ea483ed25fd6ff5d0e466a a0cc2a0654d992815c7e39a61a044128ba01a4cc gabrielcarvfer <gabrielcarvfer@gmail.com> 1462084606 -0300	commit: Add project files.
+a0cc2a0654d992815c7e39a61a044128ba01a4cc 44842c73c997d4b80f9450de649403859553908c gabrielcarvfer <gabrielcarvfer@gmail.com> 1462311281 -0300	commit: Fixing sender thread
+44842c73c997d4b80f9450de649403859553908c ea5b2d38550c31956293b49379a32b2252cbc016 gabrielcarvfer <gabrielcarvfer@gmail.com> 1462904683 -0300	commit: Final sync logic showing problems and finishing with suboptimal alignments
+ea5b2d38550c31956293b49379a32b2252cbc016 5cf5b6e3870afd560d84bc559033de55b5083f61 gabrielcarvfer <gabrielcarvfer@gmail.com> 1463198995 -0300	commit: Fixing sync
+5cf5b6e3870afd560d84bc559033de55b5083f61 6bc92817bc53615b497379e1e68623dbdf0e8587 gabrielcarvfer <gabrielcarvfer@gmail.com> 1463255330 -0300	commit: Distribuição de nós, nós finais e sincronização de dados funcionando para N threads, com resultados pra lá de questionáveis. Backtrace não funcional por falta de junção das closed lists.

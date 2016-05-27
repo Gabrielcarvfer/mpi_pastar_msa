@@ -1,0 +1,13 @@
+0000000000000000000000000000000000000000 6bc92817bc53615b497379e1e68623dbdf0e8587 gabrielcarvfer <gabrielcarvfer@gmail.com> 1463269380 -0300	branch: Created from 6bc92817bc53615b497379e1e68623dbdf0e8587
+6bc92817bc53615b497379e1e68623dbdf0e8587 0bb050a33f5b40b344357813b369c8a8e0f6921b gabrielcarvfer <gabrielcarvfer@gmail.com> 1463269394 -0300	commit: astar debugging
+0bb050a33f5b40b344357813b369c8a8e0f6921b baf078fd96339bbb5144a0e7c5162f7e7f8c88f0 gabrielcarvfer <gabrielcarvfer@gmail.com> 1463287941 -0300	commit: pré troca de array C para std::vector
+baf078fd96339bbb5144a0e7c5162f7e7f8c88f0 f91914f1c1a15e0de8e0f9269b97930ae869f6f0 gabrielcarvfer <gabrielcarvfer@gmail.com> 1463288481 -0300	commit: pre mod
+f91914f1c1a15e0de8e0f9269b97930ae869f6f0 cb5dfff2c290a9d0d2d2e94fdfb56b6bb5c799f6 gabrielcarvfer <gabrielcarvfer@gmail.com> 1463374311 -0300	commit: Fixed closed list transmission. TODO: backtrace, check closed list id values, prevent multiple broadcasting to node 0 multiple times
+cb5dfff2c290a9d0d2d2e94fdfb56b6bb5c799f6 9cf81cc46fc18a180c064449162c35207691c25e gabrielcarvfer <gabrielcarvfer@gmail.com> 1463446521 -0300	commit: debugging with Alba and Daniel
+9cf81cc46fc18a180c064449162c35207691c25e f646e9c1e80c9c2ef9364230f2f1d1ca2f0de6d7 gabrielcarvfer <gabrielcarvfer@gmail.com> 1463464880 -0300	commit: backtrace e junção das closed lists
+f646e9c1e80c9c2ef9364230f2f1d1ca2f0de6d7 2d00c39ae52f672281fd0be44d08798a967da53d gabrielcarvfer <gabrielcarvfer@gmail.com> 1463509547 -0300	commit: adição de threads para processamento de mensagens, reduzindo número de nós não recebidos
+2d00c39ae52f672281fd0be44d08798a967da53d adfd2416395eb62c0d24eb32c3b3e180781b58a5 gabrielcarvfer <gabrielcarvfer@gmail.com> 1463539169 -0300	commit: fixing synchronization and node transmission
+adfd2416395eb62c0d24eb32c3b3e180781b58a5 4e1c5ac327c420f1ce959bd24f5a9b60b22049b1 gabrielcarvfer <gabrielcarvfer@gmail.com> 1463539381 -0300	commit: score consertado, porém com gato violento com timer
+4e1c5ac327c420f1ce959bd24f5a9b60b22049b1 86302a063d46bfabdd0dd5b2fff5abdbbc7aa20e gabrielcarvfer <gabrielcarvfer@gmail.com> 1463540127 -0300	commit: depurando para 4 nós
+86302a063d46bfabdd0dd5b2fff5abdbbc7aa20e 459ce673a41ab7695267defc25a9ec007e688025 gabrielcarvfer <gabrielcarvfer@gmail.com> 1463542294 -0300	commit: testando sem terceira fase de sincronia. alinhamento com 2 processos funciona bem, múltiplos não
+459ce673a41ab7695267defc25a9ec007e688025 dcfa2a1934e7ce1af42f9e7a9fad94d71601d350 gabrielcarvfer <gabrielcarvfer@gmail.com> 1463548593 -0300	commit: mexido na direção certa, mas não funcional, voltando  pro ponto anterior
