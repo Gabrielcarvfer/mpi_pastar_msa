@@ -738,16 +738,9 @@ int PAStar<N>::sender()
 					}
 					if (tag >= MPI_TAG_BROADCAST_NODE_TO_0)
 					{
-						//std::cout << m_options.mpiRank <<": bradcasting to n" << std::endl;
 						for (i = 0; i < m_options.mpiCommSize; i++)
-						{
 							if (i != m_options.mpiRank)
-							{
-								//std::cout << tag - MPI_TAG_BROADCAST_NODE_TO_0 << std::endl;
-								//std::cout << ss.str();
 								MPI_Send(ss.str().c_str(), ss.str().size() + 1, MPI_CHAR, i, tag - MPI_TAG_BROADCAST_NODE_TO_0, MPI_COMM_WORLD);
-							}
-						}
 					}
 			}
 		}
