@@ -482,7 +482,7 @@ bool PAStar<N>::check_stop(int tid)
 		queue_condition[m_options.threads_num].notify_one();		
 	}
 
-	sync_threads();
+	sync_threads_local();
 
     if (end_cond == false)							  
     {
@@ -543,26 +543,19 @@ int PAStar<N>::worker(int tid, const Coord<N> &coord_final)
 	set_affinity(tid);
 #endif
 	//sync all threads from all nodes to prevent problems
-	sync_threads_local();
 	sync_threads();
 
 	// worker_inner is the main inner loop
 	// check_stop syncs and check if is the optimal answer
 	// and check_stop_global stops if the local answer is the global optimum
-    //do 
-	//{
-		do 
+    do 
+	{
+		do
 		{
 			worker_inner(tid, coord_final);
 		} while (check_stop(tid));
-		//std::cout << m_options.mpiRank << "-" << tid << ": threads agreed in a result" << std::endl;
-		sync_threads();
-		//consume_queue(tid);
-		//if (OpenList[tid].get_highest_priority() < final_node.get_f())
-		//{
-		//	continue;
-		//}
-	//} while (check_stop_global(tid));
+		consume_queue(tid);
+	} while (check_stop_global(tid));
 
 	//the first local thread of each node kill sender and receiver to prevent problems with MPI exchange 
 	if (tid == 0)
@@ -591,10 +584,9 @@ int PAStar<N>::sender()
 	int i = 0, tag = 0;
 	const char b[] = "1";
 	bool goodbye = false, empty = true;
-	long long int local, val, remoteValues[2], *recvBuff = nullptr;	
+	long long int local, val, remoteValues[2], *recvBuff = nullptr;
 
-	
-	Flags flags = normal;
+	std::queue<Flags> flagQueue;
 	
 
 	while (!goodbye | !(empty = send_queue.empty()))
@@ -605,17 +597,18 @@ int PAStar<N>::sender()
 		// Polling queue
 		if (empty == true)
 		{
-			switch(flags)
+			if (!flagQueue.empty())
 			{
+				switch (flagQueue.front())
+				{
 				case barrier:
-					{
-						std::unique_lock<std::mutex> lock(sync_mutex_global);
-						std::cout << m_options.mpiRank << ": barrier with message queue: " << send_queue.size() << std::endl;
-						MPI_Barrier(MPI_COMM_WORLD);
-						flags = normal;
-						sync_condition_global.notify_all();
-					}
-					break;
+				{
+					std::unique_lock<std::mutex> lock(sync_mutex_global);
+					std::cout << m_options.mpiRank << ": barrier with message queue: " << send_queue.size() << std::endl;
+					MPI_Barrier(MPI_COMM_WORLD);
+					sync_condition_global.notify_all();
+				}
+				break;
 				case check:
 					std::cout << m_options.mpiRank << ": sender queue size at global ckeck" << send_queue.size() << std::endl;
 					// If end_cond = true, then we might be in a false end where everyone agrees with its own final node;
@@ -632,7 +625,6 @@ int PAStar<N>::sender()
 						std::cout << m_options.mpiRank << ":local node isnt global minimum" << std::endl;
 					}
 					MPI_Allreduce(&end_condLocal, &end_cond, 1, MPI_C_BOOL, MPI_LAND, MPI_COMM_WORLD);
-					flags = normal;
 					break;
 				case final_check:
 					std::cout << m_options.mpiRank << ": sender queue size at final global ckeck" << send_queue.size() << std::endl;
@@ -675,7 +667,6 @@ int PAStar<N>::sender()
 						if (val != remoteValues[0])
 							end_condLocal = false;
 					}
-					flags = normal;
 					break;
 				case end_receiver:
 					std::cout << "sender killing receiver" << std::endl;
@@ -685,6 +676,8 @@ int PAStar<N>::sender()
 					break;
 				default:
 					break;
+				}
+				flagQueue.pop();
 			}
 			//std::cout << "locking sender mutex" << std::endl;
 			std::unique_lock<std::mutex> queue_lock(queue_mutex[m_options.threads_num]);
@@ -704,16 +697,17 @@ int PAStar<N>::sender()
 		switch (tag = std::get<1>(temp))
 		{
 			case MPI_TAG_KILL_RECEIVER:
-				flags = end_receiver;
+				flagQueue.push(end_receiver);
 				break;
 			case MPI_TAG_BARRIER:
-				flags = barrier;
+				std::cout << m_options.mpiRank << ": hello moto" << std::endl;
+				flagQueue.push(barrier);
 				break;
 			case MPI_TAG_FINAL_GLOBAL_CHECK:
-				flags = final_check;
+				flagQueue.push(final_check);
 				break;
 			case MPI_TAG_GLOBAL_CHECK:
-				flags = check;
+				flagQueue.push(check);
 				break;
 			default:
 			case MPI_TAG_SEND_COMMON:
@@ -729,11 +723,8 @@ int PAStar<N>::sender()
 					//precisamos enviar a thread alvo junto do conteudo dos nos
 					if (tag == MPI_TAG_SEND_COMMON)
 					{
-
-						//std::cout << "sending: " << ss.str() << std::endl;
 						int iLocal = std::get<0>(temp) % m_options.threads_num;
 						int targetNode = std::get<0>(temp) / m_options.mpiMax;
-						//std::cout << "target node " << targetNode << " thread " << iLocal << std::endl;
 						MPI_Send(ss.str().c_str(), ss.str().size() + 1, MPI_CHAR, targetNode, iLocal, MPI_COMM_WORLD);
 					}
 					if (tag >= MPI_TAG_BROADCAST_NODE_TO_0)

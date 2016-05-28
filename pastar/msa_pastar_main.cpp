@@ -59,12 +59,12 @@ int main(int argc, char *argv[])
 	int provided = 0;
 	MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided);
 
-	if (provided != MPI_THREAD_MULTIPLE)
-	{
-		MPI_Abort(MPI_COMM_WORLD, 1);
-		MPI_Finalize();
-		exit(1);
-	}
+	//if (provided != MPI_THREAD_MULTIPLE)
+	//{
+	//	MPI_Abort(MPI_COMM_WORLD, 1);
+	//	MPI_Finalize();
+	//	exit(1);
+	//}
 
     PAStarOpt opt;
     std::string filename;
