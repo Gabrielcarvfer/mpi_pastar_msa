@@ -139,6 +139,11 @@ class PAStar {
         std::atomic<int> sync_count;
         std::condition_variable sync_condition;
 
+		std::condition_variable sender_condition;
+		std::mutex sender_mutex;
+		std::condition_variable receiver_condition;
+		std::mutex receiver_mutex;
+
         // Constructor
         PAStar(const Node<N> &node_zero, const PAStarOpt &opt);
         ~PAStar();
@@ -147,7 +152,7 @@ class PAStar {
 #ifndef WIN32
         int set_affinity(int tid);
 #endif
-        void sync_threads();
+        void sync_threads(bool flushing);
 		void sync_threads_local();
         void print_nodes_count();
 
@@ -171,9 +176,12 @@ class PAStar {
 		int sender(void);
 		int process_message(int sender_tag, char *buffer);
 		long long int send = 0, recv = 0;
-		std::shared_mutex *processing_mutex;
+		std::mutex processing_mutex;
 		std::mutex sync_mutex_global;
 		std::condition_variable sync_condition_global;
+		void flush_sender();
+		void flush_receiver();
+		long long int recv_cnt = 0;
 
         // Backtrack
         void sync_pastar_data(void);

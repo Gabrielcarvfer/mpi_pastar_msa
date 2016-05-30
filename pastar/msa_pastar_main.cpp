@@ -57,14 +57,14 @@ int main(int argc, char *argv[])
 	//Inicia MPI e comunicador global
     //MPI_Init(&argc, &argv);
 	int provided = 0;
-	MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided);
+	MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided);	 
 
-	//if (provided != MPI_THREAD_MULTIPLE)
-	//{
-	//	MPI_Abort(MPI_COMM_WORLD, 1);
-	//	MPI_Finalize();
-	//	exit(1);
-	//}
+	/*if (provided != MPI_THREAD_MULTIPLE)
+	{
+		MPI_Abort(MPI_COMM_WORLD, 1);
+		MPI_Finalize();
+		exit(1);
+	} */
 
     PAStarOpt opt;
     std::string filename;
@@ -100,11 +100,10 @@ int main(int argc, char *argv[])
 	    exit(1);
 	}
 
-        //retrieve number of sequences
+    //retrieve number of sequences
 	numSeq = Sequences::get_seq_num();
-	//std::cout << numSeq << std::endl;
-
-        //send sequences to other processes
+	
+    //send sequences to other processes
 	MPI_Bcast(&numSeq, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
 	//for each read sequence
@@ -121,24 +120,20 @@ int main(int argc, char *argv[])
     }
     else
     {
-        //TODO: receive fasta from node 0
         MPI_Bcast(&numSeq, 1, MPI_INT, 0, MPI_COMM_WORLD);
-        //std::cout << numSeq << std::endl;
 	
-	char * seqBuff = NULL;
+		char * seqBuff = NULL;
         //for each announced sequence
         for (i = 0; i < numSeq; i++)
         {
             //receive size of next sequence
             MPI_Bcast(&seqLen, 1, MPI_INT, 0, MPI_COMM_WORLD);
-            //std::cout << seqLen << std::endl;
 
             //prepare buffer
             seqBuff = new char[seqLen];
 
             //receive sequence
             MPI_Bcast(seqBuff, seqLen, MPI_CHAR, 0, MPI_COMM_WORLD);
-
             std::string seq (seqBuff);
 
             //save sequence to local process
@@ -146,18 +141,14 @@ int main(int argc, char *argv[])
 
 	    delete[] seqBuff;
         }
-
-        //std::string seq = sequences->get_seq(0);
 	}
 
-    //Espera todos os nos finalizarem sincronizacao para iniciar
-    //MPI_Barrier(MPI_COMM_WORLD);
-
+    //Inicia rotina principal
     int ret = pa_star_run(opt);
 
     //Espera todos os nos terminarem o processo e threads para finalizar
     MPI_Barrier(MPI_COMM_WORLD);
-	//std::cout << "pastar returned " << ret << std::endl;
+
     //Termina graciosamente
     MPI_Finalize();
 

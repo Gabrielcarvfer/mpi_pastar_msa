@@ -28,12 +28,9 @@
 #include <boost/serialization/collection_size_type.hpp>
 
 #define MPI_TAG_SEND_COMMON                0
-#define MPI_TAG_BARRIER                  202
-#define MPI_TAG_GLOBAL_CHECK             203
-#define MPI_TAG_FINAL_GLOBAL_CHECK       204
 #define MPI_TAG_KILL_RECEIVER            205
-#define MPI_TAG_BARRIER                  206
 #define MPI_TAG_BROADCAST_NODE_TO_0      207
+#define DELAY 80
 
 
 #ifndef WIN32
@@ -71,6 +68,7 @@ PAStar<N>::PAStar(const Node<N> &node_zero, const struct PAStarOpt &opt)
     end_cond = false;
 	end_condLocal = false;
     sync_count = 0;
+	recv_cnt = 0;
     final_node.set_max();
 	best_received.set_max();
 
@@ -93,7 +91,6 @@ PAStar<N>::PAStar(const Node<N> &node_zero, const struct PAStarOpt &opt)
     nodes_countFinal = NULL;
     nodes_reopenFinal = NULL;
 
-	processing_mutex = new std::shared_mutex[m_options.threads_num]();
 	//senderWait = new std::mutex();
 
     // Allocate final structures and enqueue first node if rank zero
@@ -215,7 +212,7 @@ void PAStar<N>::wake_all_queue()
 
 //! Sync all threads, including remote ones
 template < int N >
-void PAStar<N>::sync_threads()
+void PAStar<N>::sync_threads(bool flushing)
 {
     //std::cout << "sync threads" << std::endl;
 
@@ -226,24 +223,47 @@ void PAStar<N>::sync_threads()
     else
     {
         //When every thread is blocked, block processes in a barrier
-		Node<N> nullNode;
-		std::unique_lock<std::mutex> queue_lock(queue_mutex[m_options.threads_num]);
-		std::unique_lock<std::mutex> lock(sync_mutex_global);
-
-		//std::cout << m_options.mpiRank << ": send node" << std::endl;
-
-		send_queue.push(std::make_tuple(0, MPI_TAG_BARRIER, nullNode));
-		queue_condition[m_options.threads_num].notify_one();
-		queue_lock.unlock();
-		sync_condition_global.wait(lock);
-
-		//Wait until sender finishes the barrier
-		//std::cout << m_options.mpiRank << ": barrier passed" << std::endl;
+		if (flushing)
+		{
+			flush_sender();
+			MPI_Barrier(MPI_COMM_WORLD);
+			flush_receiver();
+		}
+		MPI_Barrier(MPI_COMM_WORLD);
 
         //After that, restart everyone
         sync_count = 0;
         sync_condition.notify_all();
     }
+}
+
+template <int N>
+void PAStar<N>::flush_sender()
+{
+	if (!send_queue.empty())
+	{
+		std::unique_lock<std::mutex> sender_lock(sender_mutex);
+		std::cout << m_options.mpiRank << ": esperando pelo sender with queue size " << send_queue.size() << std::endl;
+		queue_condition[m_options.threads_num].notify_one(); //acorda sender se estiver dormindo
+		sender_condition.wait(sender_lock);
+	}
+	//std::cout << m_options.mpiRank << ": buffer do sender limpo" << std::endl;
+	return;
+}
+
+template <int N>
+void PAStar<N>::flush_receiver()
+{
+	std::unique_lock<std::mutex> lock(processing_mutex);   
+	if (recv_cnt > 0)
+	{
+		lock.unlock();
+		std::unique_lock<std::mutex> receiver_lock(receiver_mutex);
+		std::cout << m_options.mpiRank << ": esperando pelo receiver working with " << recv_cnt << std::endl;
+		receiver_condition.wait(receiver_lock);
+	}
+	//std::cout << m_options.mpiRank << ": buffer do receiver limpo" << std::endl;
+	return;
 }
 
 //! Sync all local threads
@@ -259,6 +279,9 @@ void PAStar<N>::sync_threads_local()
 	else
 	{
 		//After that, restart everyone
+		//flush_sender();
+		//flush_receiver();
+
 		sync_count = 0;
 		sync_condition.notify_all();
 	}
@@ -277,18 +300,10 @@ void PAStar<N>::worker_inner(int tid, const Coord<N> &coord_final)
         typename std::map< Coord<N>, Node<N> >::iterator c_search;
 
         // Start phase
+		//flush_receiver();
 
-		// Threads wait until every processing message is received
-		while (!queue_nodes[tid].empty())
-		{
-
-			// Threads wait until every processing message is received
-			std::unique_lock<std::shared_mutex> lock(processing_mutex[tid]);
-			lock.unlock();
-			std::this_thread::sleep_for(std::chrono::milliseconds(20));
-			// Consume openlist to find if someone have a better route
-			consume_queue(tid);
-		}
+		// Consume openlist to find if someone have a better route
+		consume_queue(tid);
 
         // Dequeue phase
         if (OpenList[tid].dequeue(current) == false)
@@ -347,17 +362,18 @@ void PAStar<N>::worker_inner(int tid, const Coord<N> &coord_final)
                 {
 					int iLocal = i % m_options.threads_num;
                     //std::cout << "happily, a local node" << std::endl;
-                    std::unique_lock<std::mutex> queue_lock(queue_mutex[iLocal]);
+                    std::lock_guard<std::mutex> queue_lock(queue_mutex[iLocal]);
                     queue_nodes[iLocal].insert(queue_nodes[iLocal].end(), neigh[i].begin(), neigh[i].end());
                     queue_condition[iLocal].notify_one();
                 }
                 //or remote
                 else
 				{
-					std::unique_lock<std::mutex> queue_lock(queue_mutex[m_options.threads_num]);
+					//std::cout << "adding node to sender" << std::endl;
+					std::lock_guard<std::mutex> queue_lock(queue_mutex[m_options.threads_num]);
 					for (unsigned int j = 0; j < neigh[i].size(); j++)
 						send_queue.push(std::make_tuple(i, MPI_TAG_SEND_COMMON, neigh[i].at(j)));
-					queue_condition[m_options.threads_num].notify_one();
+					queue_condition[m_options.threads_num].notify_all();
                 }
             }
             neigh[i].clear();
@@ -404,17 +420,20 @@ void PAStar<N>::process_final_node(int tid, const Node<N> &n)
 			{
 				if (i != tid)
 				{
-					std::unique_lock<std::mutex> queue_lock(queue_mutex[i]);
+					std::lock_guard<std::mutex> queue_lock(queue_mutex[i]);
 					queue_nodes[i].push_back(n);
 					queue_condition[i].notify_one();
 				}
-			}
-	
+			}			
+
+			//If thread found the node, share it with other processes
+			if (originRank == m_options.mpiRank)
+			{
 				//For remote threads: send messages to be broadcasted between node threads
-				std::unique_lock<std::mutex> queue_lock(queue_mutex[m_options.threads_num]);
+				std::lock_guard<std::mutex> queue_lock(queue_mutex[m_options.threads_num]);
 				send_queue.push(std::make_tuple(0, MPI_TAG_BROADCAST_NODE_TO_0 + tid, n));
 				queue_condition[m_options.threads_num].notify_one();
-			
+			}
 
 			final_node_lock.unlock();
 		}
@@ -448,48 +467,61 @@ void PAStar<N>::process_final_node(int tid, const Node<N> &n)
 template < int N >
 bool PAStar<N>::check_stop(int tid)
 {
-	wake_all_queue();
+	long long int local, val;
 
 	Node<N> n = final_node;
+	
+	wake_all_queue();
 
-	while (!queue_nodes[tid].empty())
-	{
+	sync_threads(true);
 
-		// Threads wait until every processing message is received
-		std::unique_lock<std::shared_mutex> lock(processing_mutex[tid]);
-		lock.unlock();
-		//std::this_thread::sleep_for(std::chrono::milliseconds(20));
-		// Consume openlist to find if someone have a better route
-		consume_queue(tid);
-	}
+	// Consume openlist to find if someone have a better route
+	consume_queue(tid);
 
 	//std::cout << m_options.mpiRank << "-" << tid << ": checking end with f-value = " << final_node.get_f() << std::endl;
 	// If someone have a better value, we're not at the end yet	   -> we could look for minimum value inside node and then use MPI_Allreduce to find global minimum
 	if (OpenList[tid].get_highest_priority() < final_node.get_f())
 	{
-		std::cout << "looks like i've found a better route" << std::endl;
+		//std::cout << "looks like i've found a better route" << std::endl;
 		end_cond = false;
 	}
 
-	sync_threads(); 
+	sync_threads(false);
 
-	// Get if we're at global end
 	if (tid == 0)
 	{
-		Node<N> nullNode;
-		std::unique_lock<std::mutex> queue_lock(queue_mutex[m_options.threads_num]);
-		send_queue.push(std::make_tuple(0, MPI_TAG_GLOBAL_CHECK, nullNode));
-		queue_condition[m_options.threads_num].notify_one();		
-	}
+		//std::cout << m_options.mpiRank << ": sender queue size at global ckeck" << send_queue.size() << std::endl;
+		// If end_cond = true, then we might be in a false end where everyone agrees with its own final node;
+		local = final_node.get_f();
 
-	sync_threads_local();
+		MPI_Allreduce(&local, &val, 1, MPI_LONG_LONG_INT, MPI_MIN, MPI_COMM_WORLD);
 
-    if (end_cond == false)							  
-    {
-		ClosedList[tid].erase(n.pos);
-		if (n.pos.get_id(m_options.totalThreads) == ((unsigned int)tid+m_options.mpiMin))
+		// Preserve if end flag was already up
+		end_condLocal = (end_cond == true) ? true : false;
+
+		if (local != val)
 		{
-			OpenList[tid].conditional_enqueue(n);
+			end_condLocal = false;
+			std::cout << m_options.mpiRank << ":local node isnt global minimum" << std::endl;
+		}
+		MPI_Allreduce(&end_condLocal, &end_cond, 1, MPI_C_BOOL, MPI_LAND, MPI_COMM_WORLD);
+
+		std::cout << m_options.mpiRank << "end_condLocal " << end_condLocal << " while end_cond " << end_cond << std::endl;
+
+	}
+	//sync_threads_local();
+	sync_threads(false);
+
+    if (!end_cond)							  
+    {
+		if (!end_condLocal)
+		{
+			ClosedList[tid].erase(n.pos);
+			if (n.pos.get_id(m_options.totalThreads) == ((unsigned int)tid + m_options.mpiMin))
+				//if (n.pos.get_id(m_options.threads_num) == ((unsigned int)tid))
+			{
+				OpenList[tid].conditional_enqueue(n);
+			}
 		}
         return true;
     }
@@ -507,29 +539,66 @@ bool PAStar<N>::check_stop(int tid)
 template < int N >
 bool PAStar<N>::check_stop_global(int tid)
 {
+	long long int val, remoteValues[2], *recvBuff;
+	sync_threads(true);
 	// Each rank 0 thread send the process final node to other rank 0
 	if (tid == 0)
 	{
-		//std::cout << m_options.mpiRank << "-" << tid << ": global checking" << std::endl;
-		Node<N> nullNode;
-		std::unique_lock<std::mutex> queue_lock(queue_mutex[m_options.threads_num]);
-		send_queue.push(std::make_tuple(0, MPI_TAG_FINAL_GLOBAL_CHECK, nullNode));
-		queue_condition[m_options.threads_num].notify_one();
+		//std::cout << m_options.mpiRank << ": sender queue size at final global ckeck " << send_queue.size() << std::endl;
+
+		// Allgather to sync and get if we continue
+		val = final_node.get_f();
+		//first value is the minumum and the second the maximum
+		remoteValues[0] = LLONG_MAX;
+		remoteValues[1] = 0;
+
+		if (m_options.mpiRank == 0)
+			recvBuff = new long long int[m_options.mpiCommSize]();
+
+		MPI_Gather(&val, 1, MPI_LONG_LONG_INT, recvBuff, 1, MPI_LONG_LONG_INT, 0, MPI_COMM_WORLD);
+
+		if (m_options.mpiRank == 0)
+		{
+			long long int min = LLONG_MAX, max = 0;
+			for (int i = 0; i < m_options.mpiCommSize; i++)
+			{
+				if (recvBuff[i] < remoteValues[0])
+					remoteValues[0] = recvBuff[i];
+				if (recvBuff[i] > remoteValues[1])
+					remoteValues[1] = recvBuff[i];
+			}
+		}
+		if (m_options.mpiRank == 0)
+			delete[] recvBuff;
+		MPI_Bcast(&remoteValues, 2, MPI_LONG_LONG_INT, 0, MPI_COMM_WORLD);
+		std::cout << m_options.mpiRank << " - minVal: " << remoteValues[0] << " maxVal: " << remoteValues[1] << " localVal: " << val << std::endl;
+
+		// If all remote nodes share the same maximum and minimum f-values, the result is optimal
+		if (remoteValues[0] == remoteValues[1])
+		{
+			end_cond = true; //end of execution
+		}
+		else
+		{
+			end_cond = false;
+			if (val != remoteValues[0])
+				end_condLocal = false;
+		}
 
 	}
 	//Sync all local threads
-	/*sync_threads_local();
+	sync_threads_local();
 
 	Node<N> n = final_node;
 	if (end_condLocal == false)
 	{
 		ClosedList[tid].erase(n.pos);
 
-		if (n.pos.get_id(m_options.threads_num) == ((unsigned int)tid))
+		if (n.pos.get_id(m_options.totalThreads) == ((unsigned int)tid+m_options.mpiMin))
 		{
 			OpenList[tid].conditional_enqueue(n);
 		}
-	}*/
+	}
 
 	sync_threads_local();
 	return !end_cond;
@@ -543,39 +612,37 @@ int PAStar<N>::worker(int tid, const Coord<N> &coord_final)
 	set_affinity(tid);
 #endif
 	//sync all threads from all nodes to prevent problems
-	sync_threads();
+	sync_threads(false);
 
-	// worker_inner is the main inner loop
-	// check_stop syncs and check if is the optimal answer
-	// and check_stop_global stops if the local answer is the global optimum
-    do 
-	{
+	// check_stop_global stops if all the local answer is the global optimum
+    //do 
+	//{
+		// check_stop syncs and check if local nodes agreed in local optimum
 		do
 		{
+			// worker_inner is the main inner loop
 			worker_inner(tid, coord_final);
 		} while (check_stop(tid));
-		consume_queue(tid);
-	} while (check_stop_global(tid));
+		
+	//} while (check_stop_global(tid));
 
+	sync_threads(false);
+	std::cout << "preparing to exit" << std::endl;
 	//the first local thread of each node kill sender and receiver to prevent problems with MPI exchange 
 	if (tid == 0)
 	{
 		// awake receiver to die
 		Node<N> nullNode;
-		std::unique_lock<std::mutex> queue_lock(queue_mutex[m_options.threads_num]);
+		std::lock_guard<std::mutex> queue_lock(queue_mutex[m_options.threads_num]);
 		send_queue.push(std::make_tuple(0, MPI_TAG_KILL_RECEIVER, nullNode));
 
 		// awake sender to send message to receiver and after that kill itself
-		queue_condition[m_options.threads_num].notify_one();
+		queue_condition[m_options.threads_num].notify_all();
 	}
 
-	//std::cout << "waiting for sync" << std::endl;
-	sync_threads();
-	
+	//std::cout << "waiting for sync" << std::endl;	
     return 0;
 }
-
-enum Flags { normal, barrier, check, final_check, end_receiver};
 
 //! Execute MPI sender thread, with tid = numThreads + 1
 template < int N >
@@ -584,130 +651,34 @@ int PAStar<N>::sender()
 	int i = 0, tag = 0;
 	const char b[] = "1";
 	bool goodbye = false, empty = true;
-	long long int local, val, remoteValues[2], *recvBuff = nullptr;
+	std::tuple<int, int, Node<N>> temp;
 
-	std::queue<Flags> flagQueue;
-	
-
-	while (!goodbye | !(empty = send_queue.empty()))
+	while (!goodbye | !send_queue.empty())
 	{
-		//std::unique_lock<std::mutex> lock(*senderWait);
-		//std::cout << "sender continuing? " << std::endl;
-		
 		// Polling queue
-		if (empty == true)
+		std::unique_lock<std::mutex> queue_lock(queue_mutex[m_options.threads_num]);
+		//std::cout << "sender trabalhando" << std::endl;
+		if (send_queue.empty() == true)
 		{
-			if (!flagQueue.empty())
-			{
-				switch (flagQueue.front())
-				{
-				case barrier:
-				{
-					std::unique_lock<std::mutex> lock(sync_mutex_global);
-					std::cout << m_options.mpiRank << ": barrier with message queue: " << send_queue.size() << std::endl;
-					MPI_Barrier(MPI_COMM_WORLD);
-					sync_condition_global.notify_all();
-				}
-				break;
-				case check:
-					std::cout << m_options.mpiRank << ": sender queue size at global ckeck" << send_queue.size() << std::endl;
-					// If end_cond = true, then we might be in a false end where everyone agrees with its own final node;
-					local = final_node.get_f();
-
-					MPI_Allreduce(&local, &val, 1, MPI_LONG_LONG_INT, MPI_MIN, MPI_COMM_WORLD);
-
-					// Preserve if end flag was already up
-					end_condLocal = (end_cond == true) ? true : false;
-
-					if (local != val)
-					{
-						end_condLocal = false;
-						std::cout << m_options.mpiRank << ":local node isnt global minimum" << std::endl;
-					}
-					MPI_Allreduce(&end_condLocal, &end_cond, 1, MPI_C_BOOL, MPI_LAND, MPI_COMM_WORLD);
-					break;
-				case final_check:
-					std::cout << m_options.mpiRank << ": sender queue size at final global ckeck" << send_queue.size() << std::endl;
-
-					// Allgather to sync and get if we continue
-					val = final_node.get_f();
-					//first value is the minumum and the second the maximum
-					remoteValues[0] = LLONG_MAX;
-					remoteValues[1] = 0;
-
-					if (m_options.mpiRank == 0)
-						recvBuff = new long long int[m_options.mpiCommSize]();
-
-					MPI_Gather(&val, 1, MPI_LONG_LONG_INT, recvBuff, 1, MPI_LONG_LONG_INT, 0, MPI_COMM_WORLD);
-
-					if (m_options.mpiRank == 0)
-					{
-						long long int min = LLONG_MAX, max = 0;
-						for (int i = 0; i < m_options.mpiCommSize; i++)
-						{
-							if (recvBuff[i] < remoteValues[0])
-								remoteValues[0] = recvBuff[i];
-							if (recvBuff[i] > remoteValues[1])
-								remoteValues[1] = recvBuff[i];
-						}
-					}
-					if (m_options.mpiRank == 0)
-						delete[] recvBuff;
-					MPI_Bcast(&remoteValues, 2, MPI_LONG_LONG_INT, 0, MPI_COMM_WORLD);
-					std::cout << m_options.mpiRank << " - minVal: " << remoteValues[0] << " maxVal: " << remoteValues[1] << " localVal: " << val << std::endl;
-
-					// If all remote nodes share the same maximum and minimum f-values, the result is optimal
-					if (remoteValues[0] == remoteValues[1])
-					{
-						end_cond = true; //end of execution
-					}
-					else
-					{
-						end_cond = false;
-						if (val != remoteValues[0])
-							end_condLocal = false;
-					}
-					break;
-				case end_receiver:
-					std::cout << "sender killing receiver" << std::endl;
-					MPI_Send(&b, 2, MPI_CHAR, m_options.mpiRank, tag, MPI_COMM_WORLD);
-					goodbye = true;
-					continue;	//break to loop
-					break;
-				default:
-					break;
-				}
-				flagQueue.pop();
-			}
-			//std::cout << "locking sender mutex" << std::endl;
-			std::unique_lock<std::mutex> queue_lock(queue_mutex[m_options.threads_num]);
-			//std::cout << "waiting for something to be queued" << std::endl;
+			// Sinaliza buffer limpo e acorda quem estiver esperando
+			//std::cout << "sender without work, going to sleep" << std::endl;
+			sender_condition.notify_one();
 			queue_condition[m_options.threads_num].wait(queue_lock);
-			//std::cout << "awaking" << std::endl;
+			queue_lock.unlock();
 			continue;
 		}
-		
-		std::unique_lock<std::mutex> queue_lock(queue_mutex[m_options.threads_num]);
-		std::tuple<int, int, Node<N>> temp;
+
 		temp = send_queue.front();
-		//std::cout << "continuing tag: " << std::get<1>(temp) << std::endl;
+		//wstd::cout << "continuing tag: " << std::get<1>(temp) << std::endl;
 		send_queue.pop();
 		queue_lock.unlock();
 		
 		switch (tag = std::get<1>(temp))
 		{
 			case MPI_TAG_KILL_RECEIVER:
-				flagQueue.push(end_receiver);
-				break;
-			case MPI_TAG_BARRIER:
-				std::cout << m_options.mpiRank << ": hello moto" << std::endl;
-				flagQueue.push(barrier);
-				break;
-			case MPI_TAG_FINAL_GLOBAL_CHECK:
-				flagQueue.push(final_check);
-				break;
-			case MPI_TAG_GLOBAL_CHECK:
-				flagQueue.push(check);
+				std::cout << "sender killing receiver" << std::endl;
+				MPI_Send(&b, 2, MPI_CHAR, m_options.mpiRank, tag, MPI_COMM_WORLD);
+				goodbye = true;
 				break;
 			default:
 			case MPI_TAG_SEND_COMMON:
@@ -733,12 +704,12 @@ int PAStar<N>::sender()
 							if (i != m_options.mpiRank)
 								MPI_Send(ss.str().c_str(), ss.str().size() + 1, MPI_CHAR, i, tag - MPI_TAG_BROADCAST_NODE_TO_0, MPI_COMM_WORLD);
 					}
-			}
+				}
 		}
 		send++;
-		//lock.unlock();
 	} 
-	//std::cout << m_options.mpiRank << ": finishing sender with " << send << " messages sent" << std::endl;
+	// Last notify
+	sender_condition.notify_one();
 	return 0;
 }
 
@@ -781,23 +752,25 @@ int PAStar<N>::receiver(PAStar<N> * pastar_inst)
 
 		if (sender_tag == MPI_TAG_KILL_RECEIVER)
 		{
-			//std::cout << "we are finishing, goodbye" << std::endl;
+			std::cout << "we are finishing, goodbye" << std::endl;
 			goodbye = true;
-
 			//as safety measure, wake up receiver to finish
-			queue_condition[m_options.threads_num].notify_one();
+			queue_condition[m_options.threads_num].notify_all();
 		}
 		else
 		{
-			process_message(sender_tag, buffer);
-			//std::thread t(&PAStar::process_message, pastar_inst, sender_tag, buffer);
-			//t.detach();
-			//create process_message a thread passing buffer and sender_tag
+			//Lock counter of messages awaiting to be processed
+			std::lock_guard<std::mutex> lock(processing_mutex);
+			recv_cnt++;
+
+			//Create a processing thread passing buffer and sender_tag
+			std::thread t(&PAStar::process_message, pastar_inst, sender_tag, buffer);
+			t.detach();
 		}
 		recv++;
-		//lock.unlock();
 	} 
-	//std::cout << m_options.mpiRank << ": finishing receiver with " << recv << " messages received" << std::endl;
+	// Last notify
+	receiver_condition.notify_all();
     return 0;
 }
 
@@ -805,35 +778,32 @@ int PAStar<N>::receiver(PAStar<N> * pastar_inst)
 template < int N >
 int PAStar<N>::process_message(int sender_tag, char *buffer)
 {
-	//TODOOOOO: use a global control variable, that is incremented when start processing a message and decremented when it finishes
-	//so that the thread that is going to receive the node keep waiting with std::this_thread::yield() until its control variable is equal to 0
-	//or make it sleep until process message control variable dont wake it up
-	std::shared_lock<std::shared_mutex> lock (processing_mutex[sender_tag]);
-
 	//convert buffer to something useful, like thread id and node vector
 	std::stringstream ss(buffer);
 	boost::archive::text_iarchive ia{ ss };
-	//std::cout << "hey, rank " << m_options.mpiRank << " received " << n_bytes << " of data, saving to tid " << sender_tag << std::endl;
 	Node<N> neigh;
 	ia & neigh;
-	//std::cout << "node being received by " << m_options.mpiRank << "-" << ": " << ss.str() << std::endl;
 
-	
-	//if (neigh.get_f() < final_node.get_f())
-	//{	
-	//	std::unique_lock<std::mutex> best_received_lock(best_received_mutex);
-	//	best_received = neigh;
-	//	//std::cout << m_options.mpiRank << ": receiver replacing best received ->" << best_received << std::endl;
-	//	best_received_lock.unlock();
-	//}
-
+	//std::cout << "message received: " << neigh << std::endl;
 	// Locking queue to add received stuff
-	//std::cout << "receiving: " << ss.str() << std::endl;
 	std::unique_lock<std::mutex> queue_lock(queue_mutex[sender_tag]);
 	queue_nodes[sender_tag].push_back(neigh);
-	queue_condition[sender_tag].notify_one();
+	queue_condition[sender_tag].notify_all();
+	queue_lock.unlock();
 	
 	delete[] buffer;
+
+	// Update counter of messages awaiting to be processed
+	std::lock_guard<std::mutex> processing_lock(processing_mutex);
+	recv_cnt--;
+	//std::cout << m_options.mpiRank << ": recv_cnt " << recv_cnt << std::endl;
+
+	// Notify any process awaiting for receiver queue to be clean
+	if (recv_cnt == 0)
+	{
+		//std::cout << m_options.mpiRank << ": receiver finished processing" << std::endl;
+		receiver_condition.notify_all();
+	}
 
 	return 0;
 }
@@ -873,7 +843,6 @@ void PAStar<N>::print_answer()
 {
     backtrace<N>(ClosedListFinal, m_options.totalThreads);
     print_nodes_count();
-	//std::cout << "best received " << best_received << std::endl;
 }
 
 /*!
@@ -1006,8 +975,6 @@ int PAStar<N>::pa_star(const Node<N> &node_zero, const Coord<N> &coord_final, co
     for (auto& th : threads)
         th.join();
     delete t;
-
-    //std::cout << options.mpiRank << ":olha eu aqui, mãe" << std::endl;
 	
 	// Don't you dare removing that barrier
     MPI_Barrier(MPI_COMM_WORLD);
