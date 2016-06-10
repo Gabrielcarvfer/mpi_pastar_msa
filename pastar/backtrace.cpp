@@ -47,7 +47,6 @@ int get_print_size()
 template <int N>
 void backtrace_create_alignment(std::list<char> *alignments, std::map<Coord<N>, Node<N> > *ClosedList, int list_size)
 {
-	//TODO: fix backtrace
     Sequences *seq = Sequences::getInstance();
 
     int id = seq->get_final_coord<N>().get_id(list_size);

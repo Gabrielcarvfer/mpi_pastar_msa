@@ -295,7 +295,7 @@ void PAStar<N>::worker_inner(int tid, const Coord<N> &coord_final)
     std::vector< Node<N> > *neigh = new std::vector< Node<N> >[m_options.totalThreads];
 
     // Loop ended by process_final_node
-    while (end_cond == false)
+    while (end_condLocal == false)
     {
         typename std::map< Coord<N>, Node<N> >::iterator c_search;
 
@@ -448,7 +448,7 @@ void PAStar<N>::process_final_node(int tid, const Node<N> &n)
 		// This node have the highest priority between all Openlist. Broadcast the end condition
 		if (++final_node_count == m_options.threads_num)
 		{
-			end_cond = true;
+			//end_cond = true;
 			end_condLocal = true;
 		}
 	}
@@ -469,7 +469,7 @@ template < int N >
 bool PAStar<N>::check_stop(int tid)
 {
 	long long int local, val;
-
+	//std::cout << m_options.mpiRank << " : entering check stop" << std::endl;
 	Node<N> n = final_node;
 	
 	wake_all_queue();
@@ -483,28 +483,30 @@ bool PAStar<N>::check_stop(int tid)
 	// If someone have a better value, we're not at the end yet	   -> we could look for minimum value inside node and then use MPI_Allreduce to find global minimum
 	if (OpenList[tid].get_highest_priority() < final_node.get_f())
 	{
-		std::cout << m_options.mpiRank << "-" << tid << ": looks like i've found a better route " << OpenList[tid].get_highest_priority() << std::endl;
+		//std::cout << m_options.mpiRank << "-" << tid << ": looks like i've found a better route " << OpenList[tid].get_highest_priority() << " node: " << OpenList[tid].get_highest_priority_node() << std::endl;
+		
 		end_condLocal = false;
 	}
 
-	sync_threads_local();
+	//sync_threads(false);
 
 	if (tid == 0)
 	{
 		//std::cout << m_options.mpiRank << ": sender queue size at global ckeck" << send_queue.size() << std::endl;
 		// If end_cond = true, then we might be in a false end where everyone agrees with its own final node;
-		//local = final_node.get_f();
+		local = final_node.get_f();
 
-		//MPI_Allreduce(&local, &val, 1, MPI_LONG_LONG_INT, MPI_MIN, MPI_COMM_WORLD);
+		MPI_Allreduce(&local, &val, 1, MPI_LONG_LONG_INT, MPI_MIN, MPI_COMM_WORLD);
 
-		//if (local != val)
-		//{
-		//	end_condLocal = false;
+		if (local != val)
+		{
+			end_condLocal = false;
 			//std::cout << m_options.mpiRank << ":local node isnt global minimum" << std::endl;
-		//}
+		}
 		MPI_Allreduce(&end_condLocal, &end_cond, 1, MPI_C_BOOL, MPI_LAND, MPI_COMM_WORLD);
-
-		std::cout << m_options.mpiRank << "end_condLocal " << end_condLocal << " while end_cond " << end_cond << std::endl;
+		
+		//std::cout << m_options.mpiRank << "end_condLocal " << end_condLocal << " while end_cond " << end_cond << std::endl;
+		//std::cout << m_options.mpiRank << ": " << local << " " << val << std::endl;
 
 	}
 	sync_threads_local();
@@ -520,7 +522,8 @@ bool PAStar<N>::check_stop(int tid)
 			ClosedList[tid].erase(n.pos);
 
 			//Enqueue node
-			if (n.pos.get_id(m_options.threads_num) == (unsigned int)tid)
+			//if (n.pos.get_id(m_options.totalThreads) == (unsigned int)tid+m_options.mpiMin)
+			if (n.pos.get_id(m_options.threads_num) == (unsigned int) tid)
 			{
 				OpenList[tid].conditional_enqueue(n);
 			}
@@ -574,7 +577,7 @@ bool PAStar<N>::check_stop_global(int tid)
 		if (m_options.mpiRank == 0)
 			delete[] recvBuff;
 		MPI_Bcast(&remoteValues, 2, MPI_LONG_LONG_INT, 0, MPI_COMM_WORLD);
-		std::cout << m_options.mpiRank << " - minVal: " << remoteValues[0] << " maxVal: " << remoteValues[1] << " localVal: " << val << std::endl;
+		//std::cout << m_options.mpiRank << " - minVal: " << remoteValues[0] << " maxVal: " << remoteValues[1] << " localVal: " << val << std::endl;
 
 		// If all remote nodes share the same maximum and minimum f-values, the result is optimal
 		if (remoteValues[0] == remoteValues[1])
@@ -602,8 +605,8 @@ bool PAStar<N>::check_stop_global(int tid)
 			OpenList[tid].conditional_enqueue(n);
 		}
 	}
-
-	sync_threads_local();
+													
+	sync_threads_local();										
 	return !end_cond;
 }
 
@@ -618,8 +621,8 @@ int PAStar<N>::worker(int tid, const Coord<N> &coord_final)
 	sync_threads(false);
 
 	// check_stop_global stops if all the local answer is the global optimum
-    do 
-	{
+    //do 
+	//{
 		// check_stop syncs and check if local nodes agreed in local optimum
 		do
 		{
@@ -627,9 +630,13 @@ int PAStar<N>::worker(int tid, const Coord<N> &coord_final)
 			worker_inner(tid, coord_final);
 		} while (check_stop(tid));
 		
-	} while (check_stop_global(tid));
+	//} while (check_stop_global(tid));
 
-	sync_threads(false);
+	//std::cout << "syncing global threads" << std::endl;
+
+	//global sync with flush to garantee that no node will be stuck because a sender/receiver thread didn't died at right time
+	sync_threads(true);
+
 	//std::cout << "preparing to exit" << std::endl;
 	//the first local thread of each node kill sender and receiver to prevent problems with MPI exchange 
 	if (tid == 0)
@@ -688,8 +695,10 @@ int PAStar<N>::sender()
 			case MPI_TAG_SEND_COMMON:
 				Node<N> n = std::get<2>(temp);
 				//std::cout << "current node " << n << " and current final node " << final_node << std::endl;
-				//if (n.get_f() <= final_node.get_f())
-				//{
+
+				//STOP RESENDING FINAL NODES FOR MAJOR PERFORMANCE
+				if (n.get_f() <= final_node.get_f())
+				{
 					//std::cout << "oh, dang it, sending nodes to remote target" << std::endl;
 					std::stringstream ss;
 					boost::archive::text_oarchive oa{ ss };
@@ -708,7 +717,7 @@ int PAStar<N>::sender()
 							if (i != m_options.mpiRank)
 								MPI_Send(ss.str().c_str(), ss.str().size() + 1, MPI_CHAR, i, tag - MPI_TAG_BROADCAST_NODE_TO_0, MPI_COMM_WORLD);
 					}
-				//}
+				}
 		}
 		send++;
 	} 
@@ -788,7 +797,11 @@ int PAStar<N>::process_message(int sender_tag, char *buffer)
 	Node<N> neigh;
 	ia & neigh;
 
-	//std::cout << "message received: " << neigh << std::endl;
+	if (neigh.get_f() == 900)
+	{
+		std::cout << m_options.mpiRank << ": message received: " << neigh << std::endl;
+	}
+
 	// Locking queue to add received stuff
 	std::unique_lock<std::mutex> queue_lock(queue_mutex[sender_tag]);
 	queue_nodes[sender_tag].push_back(neigh);
