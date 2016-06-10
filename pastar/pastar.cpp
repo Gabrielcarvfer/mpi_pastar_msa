@@ -394,7 +394,7 @@ template < int N >
 void PAStar<N>::process_final_node(int tid, const Node<N> &n)
 {
 	int i = 0;
-	unsigned int originRank = ((n.pos.get_id(m_options.totalThreads) - tid) / m_options.threads_num);
+	unsigned int originRank = (n.pos.get_id(m_options.totalThreads) / m_options.threads_num);
 	//std::cout << "process final node" << std::endl;
 
 	//Lock all threads from all nodes
@@ -426,14 +426,16 @@ void PAStar<N>::process_final_node(int tid, const Node<N> &n)
 				}
 			}			
 
+			
 			//If thread found the node, share it with other processes
-			//if (originRank == m_options.mpiRank)
-			//{
+			if (originRank == m_options.mpiRank)
+			{
+				//std::cout << m_options.mpiRank << "- origin " << originRank << "-" << tid << ": broadcasting " << n << " to all other nodes" << std::endl;
 				//For remote threads: send messages to be broadcasted between node threads
 				std::lock_guard<std::mutex> queue_lock(queue_mutex[m_options.threads_num]);
 				send_queue.push(std::make_tuple(0, MPI_TAG_BROADCAST_NODE_TO_0 + tid, n));
 				queue_condition[m_options.threads_num].notify_one();
-			//}
+			}
 
 			final_node_lock.unlock();
 		}
@@ -687,7 +689,7 @@ int PAStar<N>::sender()
 		switch (tag = std::get<1>(temp))
 		{
 			case MPI_TAG_KILL_RECEIVER:
-				std::cout << "sender killing receiver" << std::endl;
+				//std::cout << "sender killing receiver" << std::endl;
 				MPI_Send(&b, 2, MPI_CHAR, m_options.mpiRank, tag, MPI_COMM_WORLD);
 				goodbye = true;
 				break;
@@ -696,7 +698,7 @@ int PAStar<N>::sender()
 				Node<N> n = std::get<2>(temp);
 				//std::cout << "current node " << n << " and current final node " << final_node << std::endl;
 
-				//STOP RESENDING FINAL NODES FOR MAJOR PERFORMANCE
+				//STOP RESENDING NODES IF WORSE THEN FINAL FOR IMPROVED PERFORMANCE
 				if (n.get_f() <= final_node.get_f())
 				{
 					//std::cout << "oh, dang it, sending nodes to remote target" << std::endl;
@@ -708,7 +710,7 @@ int PAStar<N>::sender()
 					if (tag == MPI_TAG_SEND_COMMON)
 					{
 						int iLocal = std::get<0>(temp) % m_options.threads_num;
-						int targetNode = std::get<0>(temp) / m_options.mpiMax;
+						int targetNode = std::get<0>(temp) / m_options.threads_num;
 						MPI_Send(ss.str().c_str(), ss.str().size() + 1, MPI_CHAR, targetNode, iLocal, MPI_COMM_WORLD);
 					}
 					if (tag >= MPI_TAG_BROADCAST_NODE_TO_0)
@@ -765,7 +767,7 @@ int PAStar<N>::receiver(PAStar<N> * pastar_inst)
 
 		if (sender_tag == MPI_TAG_KILL_RECEIVER)
 		{
-			std::cout << "we are finishing, goodbye" << std::endl;
+			//std::cout << "we are finishing, goodbye" << std::endl;
 			goodbye = true;
 			//as safety measure, wake up receiver to finish
 			queue_condition[m_options.threads_num].notify_one();
@@ -796,11 +798,6 @@ int PAStar<N>::process_message(int sender_tag, char *buffer)
 	boost::archive::text_iarchive ia{ ss };
 	Node<N> neigh;
 	ia & neigh;
-
-	if (neigh.get_f() == 900)
-	{
-		std::cout << m_options.mpiRank << ": message received: " << neigh << std::endl;
-	}
 
 	// Locking queue to add received stuff
 	std::unique_lock<std::mutex> queue_lock(queue_mutex[sender_tag]);
