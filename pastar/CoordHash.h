@@ -8,6 +8,6 @@
 #define _COORD_HASH_H
 #ifndef HASH_SHIFT
     //! The size of the shift on most hash functions
-    #define HASH_SHIFT  12 // 0 para teste
+    #define HASH_SHIFT  0 // 0 para teste 12 para padrão
 #endif
 #endif

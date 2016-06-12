@@ -59,13 +59,14 @@ int main(int argc, char *argv[])
 	int provided = 0;
 	MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided);	 
 
-	/*if (provided != MPI_THREAD_MULTIPLE)
+	if (provided != MPI_THREAD_MULTIPLE)
 	{
 		MPI_Abort(MPI_COMM_WORLD, 1);
 		MPI_Finalize();
 		exit(1);
-	} */
+	} 
 
+	MPI_Barrier(MPI_COMM_WORLD);
     PAStarOpt opt;
     std::string filename;
 
@@ -76,7 +77,7 @@ int main(int argc, char *argv[])
     opt.mpiMax = opt.mpiMin + opt.threads_num;
     opt.totalThreads = opt.mpiCommSize * opt.threads_num;
 
-    //std::cout << mpiRank << mpiCommSize << std::endl;
+    std::cout << opt.mpiRank << opt.mpiCommSize << std::endl;
     //Todos os processos carregam argumentos de configuração
 	if (msa_pastar_options(argc, argv, filename, opt) != 0)
 	{

@@ -16,6 +16,7 @@
 #include "Node.h"
 #include "TimeCounter.h"
 #include <chrono>
+#include <lz4.h>
 
 #include <sstream>
 // include input and output archivers
@@ -372,7 +373,10 @@ void PAStar<N>::worker_inner(int tid, const Coord<N> &coord_final)
 					//std::cout << "adding node to sender" << std::endl;
 					std::lock_guard<std::mutex> queue_lock(queue_mutex[m_options.threads_num]);
 					for (unsigned int j = 0; j < neigh[i].size(); j++)
-						send_queue.push(std::make_tuple(i, MPI_TAG_SEND_COMMON, neigh[i].at(j)));
+					{
+						if (neigh[i].at(j).get_f() <= final_node.get_f())
+							send_queue.push(std::make_tuple(i, MPI_TAG_SEND_COMMON, neigh[i].at(j)));
+					}
 					queue_condition[m_options.threads_num].notify_one();
                 }
             }
@@ -671,6 +675,13 @@ int PAStar<N>::sender()
 	bool goodbye = false, empty = true;
 	std::tuple<int, int, Node<N>> temp;
 
+	std::ofstream myFile, myFileLz4;
+	std::stringstream outputFileName;
+	outputFileName << "sender" << m_options.mpiRank << ".txt";
+	myFile.open(outputFileName.str());
+	outputFileName << "sender" << m_options.mpiRank << "_lz4.txt";
+	myFileLz4.open(outputFileName.str());
+
 	while (!goodbye | !send_queue.empty())
 	{
 		// Polling queue
@@ -697,7 +708,7 @@ int PAStar<N>::sender()
 		{
 			case MPI_TAG_KILL_RECEIVER:
 				//std::cout << "sender killing receiver" << std::endl;
-				MPI_Send(&b, 2, MPI_CHAR, m_options.mpiRank, tag, MPI_COMM_WORLD);
+				MPI_Send((void*)&b, 2, MPI_CHAR, m_options.mpiRank, tag, MPI_COMM_WORLD);
 				goodbye = true;
 				break;
 			default:
@@ -705,32 +716,40 @@ int PAStar<N>::sender()
 				Node<N> n = std::get<2>(temp);
 				//std::cout << "current node " << n << " and current final node " << final_node << std::endl;
 
-				//STOP RESENDING NODES IF WORSE THEN FINAL FOR IMPROVED PERFORMANCE
-				if (n.get_f() <= final_node.get_f())
-				{
 					//std::cout << "oh, dang it, sending nodes to remote target" << std::endl;
 					std::stringstream ss;
 					boost::archive::text_oarchive oa{ ss };
 					oa & n;
+					myFile << ss.str() << std::endl;
 
+					//Experimental LZ4 compression
+					unsigned int len = ss.str().length()+1;
+					unsigned int lz4len = LZ4_compressBound(len);
+					char * lz4Data = new char[lz4len+sizeof(unsigned int)]();
+					((unsigned int*)lz4Data)[0] = len;
+					LZ4_compress_default(ss.str().c_str(), &lz4Data[sizeof(unsigned int)], len, lz4len);
+						
+					myFileLz4 << new std::string(lz4Data) << std::endl;
 					//precisamos enviar a thread alvo junto do conteudo dos nos
 					if (tag == MPI_TAG_SEND_COMMON)
 					{
 						int iLocal = std::get<0>(temp) % m_options.threads_num;
 						int targetNode = std::get<0>(temp) / m_options.threads_num;
-						MPI_Send(ss.str().c_str(), ss.str().size() + 1, MPI_CHAR, targetNode, iLocal, MPI_COMM_WORLD);
+						MPI_Send(lz4Data, lz4len, MPI_CHAR, targetNode, iLocal, MPI_COMM_WORLD);
 					}
 					if (tag >= MPI_TAG_BROADCAST_NODE_TO_0)
 					{
 						for (i = 0; i < m_options.mpiCommSize; i++)
 							if (i != m_options.mpiRank)
-								MPI_Send(ss.str().c_str(), ss.str().size() + 1, MPI_CHAR, i, tag - MPI_TAG_BROADCAST_NODE_TO_0, MPI_COMM_WORLD);
+								MPI_Send(lz4Data, lz4len, MPI_CHAR, i, tag - MPI_TAG_BROADCAST_NODE_TO_0, MPI_COMM_WORLD);
 					}
-				}
+				
 		}
 		send++;
 	} 
 	// Last notify
+	myFile.close();
+	myFileLz4.close();
 	sender_condition.notify_one();
 	return 0;
 }
@@ -800,8 +819,16 @@ int PAStar<N>::receiver(PAStar<N> * pastar_inst)
 template < int N >
 int PAStar<N>::process_message(int sender_tag, char *buffer)
 {
+	//Experimental LZ4 decompression
+	unsigned int len = ( (unsigned int*) buffer) [0];
+	char * tempBuff = new char[len]();
+	LZ4_decompress_fast(&buffer[sizeof(unsigned int)], tempBuff, len);
+	
+	std::stringstream ss(tempBuff);
+	delete[] tempBuff;
+
 	//convert buffer to something useful, like thread id and node vector
-	std::stringstream ss(buffer);
+	//std::stringstream ss(buffer);
 	boost::archive::text_iarchive ia{ ss };
 	Node<N> neigh;
 	ia & neigh;
@@ -937,7 +964,7 @@ void PAStar<N>::sync_pastar_data()
 	}
 
 	//send serialized closed lists to node 0
-	MPI_Gatherv(ss.str().c_str(), ss_size, MPI_CHAR, ss_ss, ss_sizes, ss_disp, MPI_CHAR, 0, MPI_COMM_WORLD);
+	MPI_Gatherv((void*)ss.str().c_str(), ss_size, MPI_CHAR, ss_ss, ss_sizes, ss_disp, MPI_CHAR, 0, MPI_COMM_WORLD);
 
 	if (m_options.mpiRank == 0)
 	{
@@ -999,11 +1026,11 @@ int PAStar<N>::pa_star(const Node<N> &node_zero, const Coord<N> &coord_final, co
 	
 	// Don't you dare removing that barrier
     MPI_Barrier(MPI_COMM_WORLD);
-    
-	pastar_instance.sync_pastar_data();
-	//std::cout << "preparing to print answer" << std::endl;
 
-    if (options.mpiRank == 0)
+	pastar_instance.sync_pastar_data();
+	//std::cout << "preparing to print answer " << rank << std::endl;
+
+	if (options.mpiRank == 0)
         pastar_instance.print_answer();
 
 	//std::cout << options.mpiRank << ": waiting for other processes to finish" << std::endl;
