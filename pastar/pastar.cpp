@@ -505,7 +505,12 @@ bool PAStar<N>::check_stop(int tid)
 			end_condLocal = false;
 			//std::cout << m_options.mpiRank << ":local node isnt global minimum" << std::endl;
 		}
+
+		//Some MPI implementations don't like atomic booleans, so here's a possible workaround
 		MPI_Allreduce(&end_condLocal, &end_cond, 1, MPI_C_BOOL, MPI_LAND, MPI_COMM_WORLD);
+
+		//bool endLocal = end_condLocal, endGlobal = end_cond;
+		//MPI_Allreduce(&endLocal, &endGlobal, 1, MPI_C_BOOL, MPI_LAND, MPI_COMM_WORLD);
 		
 		//std::cout << m_options.mpiRank << "end_condLocal " << end_condLocal << " while end_cond " << end_cond << std::endl;
 		//std::cout << m_options.mpiRank << ": " << local << " " << val << std::endl;
@@ -686,6 +691,8 @@ int PAStar<N>::sender()
 		send_queue.pop();
 		queue_lock.unlock();
 		
+		//std::cout << m_options.mpiRank << ": send queue size is " << send_queue.size() << std::endl;
+
 		switch (tag = std::get<1>(temp))
 		{
 			case MPI_TAG_KILL_RECEIVER:
