@@ -61,12 +61,13 @@ int main(int argc, char *argv[])
 
 	if (provided != MPI_THREAD_MULTIPLE)
 	{
-		MPI_Abort(MPI_COMM_WORLD, 1);
-		MPI_Finalize();
-		exit(1);
+		std::cout << "asked " << MPI_THREAD_MULTIPLE << " and " << provided << " was provided" << std::endl;
+		//MPI_Abort(MPI_COMM_WORLD, 1);
+		//MPI_Finalize();
+		//exit(1);
 	} 
 
-	MPI_Barrier(MPI_COMM_WORLD);
+    MPI_Barrier(MPI_COMM_WORLD);
     PAStarOpt opt;
     std::string filename;
 
@@ -77,10 +78,12 @@ int main(int argc, char *argv[])
     opt.mpiMax = opt.mpiMin + opt.threads_num;
     opt.totalThreads = opt.mpiCommSize * opt.threads_num;
 
-    std::cout << opt.mpiRank << opt.mpiCommSize << std::endl;
+    //std::cout << opt.mpiRank << opt.mpiCommSize << std::endl;
+
+    //std::cout << opt.mpiRank << ": fase 1" << std::endl;
     //Todos os processos carregam argumentos de configuração
-	if (msa_pastar_options(argc, argv, filename, opt) != 0)
-	{
+    if (msa_pastar_options(argc, argv, filename, opt) != 0)
+    {
         //no caso de erro nas opcoes
         MPI_Abort(MPI_COMM_WORLD, 1);
     }
@@ -88,7 +91,8 @@ int main(int argc, char *argv[])
     int numSeq, seqLen, i;
 
     Sequences *sequences = Sequences::getInstance();
-
+	
+    //std::cout << opt.mpiRank << ": fase 2" << std::endl;
     //Se noh de rank 0
     if (opt.mpiRank == 0)
     {
@@ -123,7 +127,7 @@ int main(int argc, char *argv[])
     {
         MPI_Bcast(&numSeq, 1, MPI_INT, 0, MPI_COMM_WORLD);
 	
-		char * seqBuff = NULL;
+	char * seqBuff = NULL;
         //for each announced sequence
         for (i = 0; i < numSeq; i++)
         {
@@ -142,7 +146,9 @@ int main(int argc, char *argv[])
 
 	    delete[] seqBuff;
         }
-	}
+    }
+
+    //std::cout << opt.mpiRank << ": fase 3" << std::endl;
 
     //Inicia rotina principal
     int ret = pa_star_run(opt);

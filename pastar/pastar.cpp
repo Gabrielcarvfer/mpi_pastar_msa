@@ -61,17 +61,19 @@ PAStar<N>::PAStar(const Node<N> &node_zero, const struct PAStarOpt &opt)
       nodes_count ( ),
       nodes_reopen ( )
 {
+    //if (m_options.mpiRank == 0)
+    //{
     std::cout << "Running PAStar with: "
               << opt.threads_num << " threads, "
               << Coord<N>::get_hash_name() << " hash, "
               << Coord<N>::get_hash_shift() << " shift.\n";
+    //}
 
     end_cond = false;
-	end_condLocal = false;
+    end_condLocal = false;
     sync_count = 0;
-	recv_cnt = 0;
+    recv_cnt = 0;
     final_node.set_max();
-	best_received.set_max();
 
 	check_stop_mutex = new std::mutex;
 
@@ -87,11 +89,26 @@ PAStar<N>::PAStar(const Node<N> &node_zero, const struct PAStarOpt &opt)
     queue_condition = new std::condition_variable[m_options.threads_num+1];
     queue_nodes = new std::vector< Node<N> >[m_options.threads_num];
 
+    send_queue = new std::vector< Node<N> > [m_options.totalThreads+1]();
+    end_of_transmission = false;
+
     OpenListFinal = NULL;
     ClosedListFinal = NULL;
     nodes_countFinal = NULL;
     nodes_reopenFinal = NULL;
 
+	threadLookupTable = new int[m_options.totalThreads*2]();
+	int i = 0, j = 0, k = 0;
+	for (; k < m_options.mpiCommSize; k++)
+	{
+		for (j = 0; j < m_options.threads_num; j++)
+		{
+			threadLookupTable[i] = k;
+			threadLookupTable[m_options.totalThreads + i] = j;
+			//std::cout << i << "-" << threadLookupTable[i] << "-" << threadLookupTable[m_options.totalThreads + i] << std::endl;
+			i++;
+		}
+	}
 	//senderWait = new std::mutex();
 
     // Allocate final structures and enqueue first node if rank zero
@@ -132,7 +149,7 @@ PAStar<N>::~PAStar()
 template < int N >
 int PAStar<N>::set_affinity(int tid)
 {
-    std::cout << "setting affinity of tid " << tid << " rank " << m_options.mpiRank << std::endl;
+    //std::cout << "setting affinity of tid " << tid << " rank " << m_options.mpiRank << std::endl;
     cpu_set_t mask;
     CPU_ZERO(&mask);
     CPU_SET(1 << tid, &mask);
@@ -241,7 +258,7 @@ void PAStar<N>::sync_threads(bool flushing)
 template <int N>
 void PAStar<N>::flush_sender()
 {
-	if (!send_queue.empty())
+	if (!sender_empty)
 	{
 		std::unique_lock<std::mutex> sender_lock(sender_mutex);
 		//std::cout << m_options.mpiRank << ": esperando pelo sender with queue size " << send_queue.size() << std::endl;
@@ -276,13 +293,11 @@ void PAStar<N>::sync_threads_local()
 	std::unique_lock<std::mutex> sync_lock(sync_mutex);
 
 	if (++sync_count < m_options.threads_num)
+	{
 		sync_condition.wait(sync_lock);
+	}
 	else
 	{
-		//After that, restart everyone
-		//flush_sender();
-		//flush_receiver();
-
 		sync_count = 0;
 		sync_condition.notify_all();
 	}
@@ -293,8 +308,11 @@ template < int N >
 void PAStar<N>::worker_inner(int tid, const Coord<N> &coord_final)
 {
     Node<N> current;
+    //std::cout << m_options.mpiRank << ": fase 6 3 worker_inner " << tid  << "fase 1" << std::endl;
+
     std::vector< Node<N> > *neigh = new std::vector< Node<N> >[m_options.totalThreads];
 
+    //std::cout << m_options.mpiRank << ": fase 6 3 worker_inner " << tid  << "fase 2" << std::endl;
     // Loop ended by process_final_node
     while (end_condLocal == false)
     {
@@ -305,7 +323,8 @@ void PAStar<N>::worker_inner(int tid, const Coord<N> &coord_final)
 
 		// Consume openlist to find if someone have a better route
 		consume_queue(tid);
-
+//std::cout << m_options.mpiRank << ": fase 6 3 worker_inner " << tid  << "fase 3" << std::endl;
+    
         // Dequeue phase
         if (OpenList[tid].dequeue(current) == false)
         {
@@ -315,7 +334,8 @@ void PAStar<N>::worker_inner(int tid, const Coord<N> &coord_final)
             continue;
         }
         nodes_count[tid] += 1;
-
+//std::cout << m_options.mpiRank << ": fase 6 3 worker_inner " << tid  << "fase 4" << std::endl;
+    
         // Check if better node is already found
         if ((c_search = ClosedList[tid].find(current.pos)) != ClosedList[tid].end())
         {
@@ -325,7 +345,8 @@ void PAStar<N>::worker_inner(int tid, const Coord<N> &coord_final)
                 continue;
             nodes_reopen[tid] += 1;
         }
-
+//std::cout << m_options.mpiRank << ": fase 6 3 worker_inner " << tid  << "fase 5" << std::endl;
+    
         //std::cout << "[" << tid << "] Opening node:\t" << current << std::endl;
         ClosedList[tid][current.pos] = current;
 											  
@@ -335,13 +356,15 @@ void PAStar<N>::worker_inner(int tid, const Coord<N> &coord_final)
             process_final_node(tid, current);
             continue;
         }
-
+//std::cout << m_options.mpiRank << ": fase 6 3 worker_inner " << tid  << "fase 6" << std::endl;
+    
         // Expand phase
         current.getNeigh(neigh, m_options.totalThreads);
 
         int actualTid = tid + m_options.mpiMin;
         //std::cout << actualTid << std::endl;
-
+//std::cout << m_options.mpiRank << ": fase 6 3 worker_inner " << tid  << "fase 7" << std::endl;
+    
         // Reconciliation phase
         for (int i = 0; i < m_options.totalThreads; i++)
         {
@@ -374,15 +397,18 @@ void PAStar<N>::worker_inner(int tid, const Coord<N> &coord_final)
 					std::lock_guard<std::mutex> queue_lock(queue_mutex[m_options.threads_num]);
 					for (unsigned int j = 0; j < neigh[i].size(); j++)
 					{
-						if (neigh[i].at(j).get_f() <= final_node.get_f())
-							send_queue.push(std::make_tuple(i, MPI_TAG_SEND_COMMON, neigh[i].at(j)));
+						send_queue[i].insert(send_queue[i].end(), neigh[i].begin(), neigh[i].end());
 					}
 					queue_condition[m_options.threads_num].notify_one();
                 }
             }
             neigh[i].clear();
         }
+	//std::cout << m_options.mpiRank << ": fase 6 3 worker_inner " << tid  << "fase 8" << std::endl;
+    
     }
+//std::cout << m_options.mpiRank << ": fase 6 3 worker_inner " << tid  << "fase 9" << std::endl;
+    
     delete[] neigh;
     return;
 }
@@ -398,12 +424,15 @@ template < int N >
 void PAStar<N>::process_final_node(int tid, const Node<N> &n)
 {
 	int i = 0;
-	unsigned int originRank = (n.pos.get_id(m_options.totalThreads) / m_options.threads_num);
+//std::cout << m_options.mpiRank << ": fase 6 3 5 process_final_node " << tid  << "fase 1" << std::endl;
+    
+	unsigned int originRank = threadLookupTable[n.pos.get_id(m_options.totalThreads)];
 	//std::cout << "process final node" << std::endl;
 
 	//Lock all threads from all nodes
 	std::unique_lock<std::mutex> final_node_lock(final_node_mutex);
-
+//std::cout << m_options.mpiRank << ": fase 6 3 5 process_final_node " << tid  << "fase 2" << std::endl;
+   
 	// Better possible answer already found, discard n
 	if (final_node.get_f() < n.get_f())
 	{
@@ -412,9 +441,11 @@ void PAStar<N>::process_final_node(int tid, const Node<N> &n)
 	}
 	else
 	{
+//std::cout << m_options.mpiRank << ": fase 6 3 5 process_final_node " << tid  << "fase 3" << std::endl;
+   
 		if (n.pos.get_id(m_options.threads_num) == ((unsigned int)tid))
 		{
-			//std::cout << "[proc: " << m_options.mpiRank << " - tid: " << tid << "] Possible answer found: " << n << std::endl;
+			std::cout << "[proc: " << m_options.mpiRank << " - tid: " << tid << "] Possible answer found: " << n << std::endl;
 			// Broadcast the node
 			final_node = n;
 			final_node_count = 0;
@@ -422,6 +453,10 @@ void PAStar<N>::process_final_node(int tid, const Node<N> &n)
 			//If the tid is shared with founder of the final node, add to other local nodes
 			for (i = 0; i < m_options.threads_num; i++)
 			{
+				if (originRank != m_options.mpiRank)
+				{
+					std::cout << "Wow, broadcasting remote node to fellows" << std::endl;
+				}
 				if (i != tid)
 				{
 					std::lock_guard<std::mutex> queue_lock(queue_mutex[i]);
@@ -432,12 +467,15 @@ void PAStar<N>::process_final_node(int tid, const Node<N> &n)
 
 			
 			//If thread found the node, share it with other processes
-			if (originRank == m_options.mpiRank)
+			if (originRank == (unsigned int) m_options.mpiRank)
 			{
-				//std::cout << m_options.mpiRank << "- origin " << originRank << "-" << tid << ": broadcasting " << n << " to all other nodes" << std::endl;
+				std::cout << m_options.mpiRank << "- origin " << originRank << "-" << tid << ": broadcasting " << n << " to all other nodes" << std::endl;
 				//For remote threads: send messages to be broadcasted between node threads
 				std::lock_guard<std::mutex> queue_lock(queue_mutex[m_options.threads_num]);
-				send_queue.push(std::make_tuple(0, MPI_TAG_BROADCAST_NODE_TO_0 + tid, n));
+				for (int i = tid; i < m_options.totalThreads; i=i+m_options.threads_num)
+				{
+					send_queue[i].push_back(n);
+				}
 				queue_condition[m_options.threads_num].notify_one();
 			}
 
@@ -446,7 +484,7 @@ void PAStar<N>::process_final_node(int tid, const Node<N> &n)
 		// Every other worker is unlocked
 		else
 		{		  
-			//std::cout << "[" << m_options.mpiRank << ":" << tid << "] Agreed with possible answer! " << n << "/" << final_node << std::endl;
+			std::cout << "[" << m_options.mpiRank << ":" << tid << "] Agreed with possible answer! " << n << "/" << final_node << std::endl;
 			//if (n != final_node) std::cout << "BUG HERE!\n";
 			final_node_lock.unlock();
 		}
@@ -458,6 +496,8 @@ void PAStar<N>::process_final_node(int tid, const Node<N> &n)
 			end_condLocal = true;
 		}
 	}
+//std::cout << m_options.mpiRank << ": fase 6 3 5 process_final_node " << tid  << "fase 4" << std::endl;
+   
 	sync_threads_local();
     return;
 }
@@ -474,6 +514,8 @@ void PAStar<N>::process_final_node(int tid, const Node<N> &n)
 template < int N >
 bool PAStar<N>::check_stop(int tid)
 {
+//std::cout << m_options.mpiRank << ": fase 6 3 check_stop " << tid  << "fase 1" << std::endl;
+   
 	long long int local, val;
 	//std::cout << m_options.mpiRank << " : entering check stop" << std::endl;
 	Node<N> n = final_node;
@@ -484,8 +526,8 @@ bool PAStar<N>::check_stop(int tid)
 
 	// Consume openlist to find if someone have a better route
 	consume_queue(tid);
-
-	//std::cout << m_options.mpiRank << "-" << tid << ": checking end with f-value = " << final_node.get_f() << std::endl;
+//std::cout << m_options.mpiRank << ": fase 6 3 check_stop " << tid  << "fase 2" << std::endl;
+	std::cout << m_options.mpiRank << "-" << tid << ": checking end f-value = " << final_node.get_f() << " | " << OpenList[tid].get_highest_priority()<< std::endl;
 	// If someone have a better value, we're not at the end yet	   -> we could look for minimum value inside node and then use MPI_Allreduce to find global minimum
 	if (OpenList[tid].get_highest_priority() < final_node.get_f())
 	{
@@ -495,7 +537,7 @@ bool PAStar<N>::check_stop(int tid)
 	}
 
 	//sync_threads(false);
-
+//std::cout << m_options.mpiRank << ": fase 6 3 check_stop " << tid  << "fase 3" << std::endl;
 	if (tid == 0)
 	{
 		//std::cout << m_options.mpiRank << ": sender queue size at global ckeck" << send_queue.size() << std::endl;
@@ -516,10 +558,11 @@ bool PAStar<N>::check_stop(int tid)
 		//bool endLocal = end_condLocal, endGlobal = end_cond;
 		//MPI_Allreduce(&endLocal, &endGlobal, 1, MPI_C_BOOL, MPI_LAND, MPI_COMM_WORLD);
 		
-		//std::cout << m_options.mpiRank << "end_condLocal " << end_condLocal << " while end_cond " << end_cond << std::endl;
+		std::cout << m_options.mpiRank << "end_condLocal " << end_condLocal << " while end_cond " << end_cond << std::endl;
 		//std::cout << m_options.mpiRank << ": " << local << " " << val << std::endl;
 
 	}
+//std::cout << m_options.mpiRank << ": fase 6 3 check_stop " << tid  << "fase 4" << std::endl;
 	sync_threads_local();
 	//sync_threads(false);
 
@@ -540,9 +583,10 @@ bool PAStar<N>::check_stop(int tid)
 			}
 		}
 		//If from a remote rank, just finish
+//std::cout << m_options.mpiRank << ": fase 6 3 check_stop " << tid  << "fase 5" << std::endl;
         return true;
     }
-
+//std::cout << m_options.mpiRank << ": fase 6 3 check_stop " << tid  << "fase 6" << std::endl;
     return false;
 }
 
@@ -625,12 +669,15 @@ bool PAStar<N>::check_stop_global(int tid)
 template < int N >
 int PAStar<N>::worker(int tid, const Coord<N> &coord_final)
 {
+	//std::cout << m_options.mpiRank << ": fase 6 worker " << tid  << "fase 1" << std::endl;
 #ifndef WIN32
 	set_affinity(tid);
 #endif
+	//std::cout << m_options.mpiRank << ": fase 6 worker " << tid  << "fase 2" << std::endl;
 	//sync all threads from all nodes to prevent problems
 	sync_threads(false);
 
+	//std::cout << m_options.mpiRank << ": fase 6 worker " << tid  << "fase 3" << std::endl;
 	// check_stop_global stops if all the local answer is the global optimum
     //do 
 	//{
@@ -644,7 +691,7 @@ int PAStar<N>::worker(int tid, const Coord<N> &coord_final)
 	//} while (check_stop_global(tid));
 
 	//std::cout << "syncing global threads" << std::endl;
-
+	//std::cout << m_options.mpiRank << ": fase 6 worker " << tid  << "fase 4" << std::endl;
 	//global sync with flush to garantee that no node will be stuck because a sender/receiver thread didn't died at right time
 	sync_threads(true);
 
@@ -655,13 +702,21 @@ int PAStar<N>::worker(int tid, const Coord<N> &coord_final)
 		// awake receiver to die
 		Node<N> nullNode;
 		std::lock_guard<std::mutex> queue_lock(queue_mutex[m_options.threads_num]);
-		send_queue.push(std::make_tuple(0, MPI_TAG_KILL_RECEIVER, nullNode));
+		send_queue[m_options.totalThreads].push_back(nullNode);
 
 		// awake sender to send message to receiver and after that kill itself
 		queue_condition[m_options.threads_num].notify_one();
 	}
 
+	//std::cout << m_options.mpiRank << ": fase 6 worker " << tid  << "fase 5" << std::endl;
+	
 	sync_threads_local();
+	//if (tid == 0)
+	//{	
+	//std::lock_guard<std::mutex> lock(queue_mutex[m_options.threads_num]);
+	//	end_of_transmission = true;	
+	//	delete[] send_queue;
+	//}
 	//std::cout << "waiting for sync" << std::endl;	
     return 0;
 }
@@ -672,85 +727,112 @@ int PAStar<N>::sender()
 {
 	int i = 0, tag = 0;
 	const char b[] = "1";
-	bool goodbye = false, empty = true;
-	std::tuple<int, int, Node<N>> temp;
-
-	std::ofstream myFile, myFileLz4;
-	std::stringstream outputFileName;
-	outputFileName << "sender" << m_options.mpiRank << ".txt";
-	myFile.open(outputFileName.str());
-	outputFileName << "sender" << m_options.mpiRank << "_lz4.txt";
-	myFileLz4.open(outputFileName.str());
-
-	while (!goodbye | !send_queue.empty())
+	bool goodbye = false;
+	
+	std::cout << m_options.mpiRank << ": sender fase 1" << std::endl;
+	
+	while (!goodbye)
 	{
-		// Polling queue
 		std::unique_lock<std::mutex> queue_lock(queue_mutex[m_options.threads_num]);
-		//std::cout << "sender trabalhando" << std::endl;
-		if (send_queue.empty() == true)
+		// Polling queue
+		sender_empty = true;
+		//std::cout << m_options.mpiRank << ": checking if queue is empty" << std::endl;
+		for (i = 0; i < m_options.totalThreads; i++)
 		{
-			// Sinaliza buffer limpo e acorda quem estiver esperando
-			//std::cout << "sender without work, going to sleep" << std::endl;
-			sender_condition.notify_one();
-			queue_condition[m_options.threads_num].wait(queue_lock);
-			queue_lock.unlock();
-			continue;
+			sender_empty &= send_queue[i].empty();
 		}
-
-		temp = send_queue.front();
-		//wstd::cout << "continuing tag: " << std::get<1>(temp) << std::endl;
-		send_queue.pop();
-		queue_lock.unlock();
 		
-		//std::cout << m_options.mpiRank << ": send queue size is " << send_queue.size() << std::endl;
-
-		switch (tag = std::get<1>(temp))
+		// If empty
+		if (sender_empty)
 		{
-			case MPI_TAG_KILL_RECEIVER:
-				//std::cout << "sender killing receiver" << std::endl;
-				MPI_Send((void*)&b, 2, MPI_CHAR, m_options.mpiRank, tag, MPI_COMM_WORLD);
+		
+			//If some node in killing queue, finish sender and receiver
+			if (!send_queue[m_options.totalThreads].empty() & !goodbye)
+			{
+				//std::cout << m_options.mpiRank << " sending finishing message" << std::endl;
+				MPI_Send((void*)&b, 2, MPI_CHAR, m_options.mpiRank, MPI_TAG_KILL_RECEIVER, MPI_COMM_WORLD);
 				goodbye = true;
-				break;
-			default:
-			case MPI_TAG_SEND_COMMON:
-				Node<N> n = std::get<2>(temp);
-				//std::cout << "current node " << n << " and current final node " << final_node << std::endl;
+				send_queue[m_options.totalThreads].clear();
+			}
 
-					//std::cout << "oh, dang it, sending nodes to remote target" << std::endl;
-					std::stringstream ss;
-					boost::archive::text_oarchive oa{ ss };
-					oa & n;
-					myFile << ss.str() << std::endl;
-
-					//Experimental LZ4 compression
-					unsigned int len = ss.str().length()+1;
-					unsigned int lz4len = LZ4_compressBound(len);
-					char * lz4Data = new char[lz4len+sizeof(unsigned int)]();
-					((unsigned int*)lz4Data)[0] = len;
-					LZ4_compress_default(ss.str().c_str(), &lz4Data[sizeof(unsigned int)], len, lz4len);
-						
-					myFileLz4 << new std::string(lz4Data) << std::endl;
-					//precisamos enviar a thread alvo junto do conteudo dos nos
-					if (tag == MPI_TAG_SEND_COMMON)
-					{
-						int iLocal = std::get<0>(temp) % m_options.threads_num;
-						int targetNode = std::get<0>(temp) / m_options.threads_num;
-						MPI_Send(lz4Data, lz4len, MPI_CHAR, targetNode, iLocal, MPI_COMM_WORLD);
-					}
-					if (tag >= MPI_TAG_BROADCAST_NODE_TO_0)
-					{
-						for (i = 0; i < m_options.mpiCommSize; i++)
-							if (i != m_options.mpiRank)
-								MPI_Send(lz4Data, lz4len, MPI_CHAR, i, tag - MPI_TAG_BROADCAST_NODE_TO_0, MPI_COMM_WORLD);
-					}
-				
+			// If set goodbye, continue to finish
+			if (goodbye)
+			{
+				//std::cout << m_options.mpiRank << " saying goodbye" << std::endl;
+				sender_condition.notify_one();
+				queue_lock.unlock();
+				continue;
+			}
+			else
+			{
+				// Sinaliza buffer limpo e acorda quem estiver esperando
+				//std::cout << "sender without work, going to sleep" << std::endl;
+				sender_condition.notify_one();
+				queue_condition[m_options.threads_num].wait(queue_lock);
+				queue_lock.unlock();
+				continue;
+			}
 		}
+		//If normal operation
+		
+		//Select a thread to send all its nodes
+		for (i = 0; i < m_options.totalThreads; i++)
+		{
+			if (!send_queue[i].empty())
+			{
+				//Copy to auxiliary buffer
+				std::vector<Node<N>> temp;
+				temp.insert(temp.end(), send_queue[i].begin(), send_queue[i].end());
+				send_queue[i].clear();
+
+				//Unlock send_queue for continuous operation
+				queue_lock.unlock();
+
+				//std::cout << "oh, dang it, sending nodes to remote target" << std::endl;
+				std::stringstream ss;
+				boost::archive::text_oarchive oa{ ss };
+
+				oa & temp;
+				temp.clear();
+
+				//Experimental LZ4 compression
+				unsigned int len = ss.str().length() + 1;
+				unsigned int lz4len = LZ4_compressBound(len);
+				unsigned int lz4len2 = 0;
+				char * lz4Data = new char[lz4len + ( sizeof(unsigned int)*3)]();
+					
+
+				lz4len2 = LZ4_compress(ss.str().c_str(), &lz4Data[sizeof(unsigned int)*3], len);
+				((unsigned int*)lz4Data)[0] = lz4len2+(sizeof(unsigned int)*3);
+				((unsigned int*)lz4Data)[1] = lz4len;
+				((unsigned int*)lz4Data)[2] = len;					
+				//std::cout << m_options.mpiRank << ": sended length" << len << std::endl;
+				//std::cout << m_options.mpiRank << ": input sized " << len << " and maximum Lz4 sized " << lz4len2 << std::endl;
+				//std::cout << "sending: " << ss.str() << std::endl;
+				//myFileLz4 << new std::string(lz4Data) << std::endl;
+				//precisamos enviar a thread alvo junto do conteudo dos nos
+
+				//int iLocal = i % m_options.threads_num;
+				//int targetNode = i / m_options.threads_num;
+				MPI_Send(lz4Data, lz4len2+(sizeof(unsigned int)*3), MPI_CHAR, threadLookupTable[i], threadLookupTable[i+m_options.totalThreads], MPI_COMM_WORLD);//targetNode, iLocal, MPI_COMM_WORLD);
+
+				//Lock again for next round
+				queue_lock.lock();
+			}
+		}
+		//At the end, unlock the lock
+		queue_lock.unlock();
+
+		
+
 		send++;
 	} 
-	// Last notify
-	myFile.close();
-	myFileLz4.close();
+
+	delete[] threadLookupTable;
+
+	// Last notify to unlock flusher
 	sender_condition.notify_one();
+	std::cout << m_options.mpiRank << ": sender fase 2" << std::endl;
 	return 0;
 }
 
@@ -764,9 +846,9 @@ int PAStar<N>::receiver(PAStar<N> * pastar_inst)
     int sender_tag = 0;
     int i = 0, flag = 0;
     char * buffer = NULL;
-	bool goodbye = false;
-
-	while (!goodbye)
+    bool goodbye = false;
+    //std::cout << m_options.mpiRank << ": receiver fase 1" << std::endl;
+    while (!goodbye)
     {
 		//std::unique_lock<std::mutex> lock(*senderWait);
 		// std::cout << "waiting for probe" << std::endl;
@@ -786,7 +868,7 @@ int PAStar<N>::receiver(PAStar<N> * pastar_inst)
 			MPI_Recv(NULL, 0, MPI_CHAR, sender, sender_tag, MPI_COMM_WORLD, &status);
 			continue;
 		}
-
+		
 		buffer = new char[n_bytes]();
 		//Receive thread destination plus nodes
 		MPI_Recv(buffer, n_bytes, MPI_CHAR, sender, sender_tag, MPI_COMM_WORLD, &status);
@@ -800,6 +882,9 @@ int PAStar<N>::receiver(PAStar<N> * pastar_inst)
 		}
 		else
 		{
+			//std::cout << "bytes received " << n_bytes << " and marked " << ((int*)buffer)[0] << std::endl;
+			if (n_bytes == ((int*)buffer)[0])
+			{
 			//Lock counter of messages awaiting to be processed
 			std::lock_guard<std::mutex> lock(processing_mutex);
 			recv_cnt++;
@@ -807,10 +892,16 @@ int PAStar<N>::receiver(PAStar<N> * pastar_inst)
 			//Create a processing thread passing buffer and sender_tag
 			std::thread t(&PAStar::process_message, pastar_inst, sender_tag, buffer);
 			t.detach();
+			}
+			else
+			{
+				delete[] buffer;
+			}
 		}
 		recv++;
 	} 
-	// Last notify
+	// Last notify to unlock flushers
+	std::cout << m_options.mpiRank << ": receiver fase 2" << std::endl;
 	receiver_condition.notify_one();
     return 0;
 }
@@ -819,27 +910,44 @@ int PAStar<N>::receiver(PAStar<N> * pastar_inst)
 template < int N >
 int PAStar<N>::process_message(int sender_tag, char *buffer)
 {
+//std::cout << m_options.mpiRank << ": processer fase 1" << std::endl;
 	//Experimental LZ4 decompression
-	unsigned int len = ( (unsigned int*) buffer) [0];
-	char * tempBuff = new char[len]();
-	LZ4_decompress_fast(&buffer[sizeof(unsigned int)], tempBuff, len);
+	int lz4len = ( (int*) buffer) [1];
+	int len = ( (int*) buffer) [2];
+
+	//std::cout << " data len "<<len<< " and lz4maxlen" << lz4len << std::endl;
 	
+
+	char * tempBuff = new char[lz4len]();
+	LZ4_decompress_fast(&buffer[sizeof(int) * 3], tempBuff, len);
+	
+	//std::cout << m_options.mpiRank << ": received length " << len << std::endl;
+	//std::cout << m_options.mpiRank << ": processer fase 2" << std::endl;
 	std::stringstream ss(tempBuff);
-	delete[] tempBuff;
+	
 
 	//convert buffer to something useful, like thread id and node vector
 	//std::stringstream ss(buffer);
 	boost::archive::text_iarchive ia{ ss };
-	Node<N> neigh;
-	ia & neigh;
+	std::vector<Node<N>> temp;
+	ia & temp;
+	//std::cout << m_options.mpiRank << ": processer fase 3" << std::endl;
+	//std::cout << ss.str() << std::endl;
+	delete[] tempBuff;
+
 
 	// Locking queue to add received stuff
 	std::unique_lock<std::mutex> queue_lock(queue_mutex[sender_tag]);
-	queue_nodes[sender_tag].push_back(neigh);
+	//std::cout << "process message ? " << end_of_transmission << std::endl;
+
+        queue_nodes[sender_tag].insert(queue_nodes[sender_tag].end(), temp.begin(), temp.end());
 	queue_condition[sender_tag].notify_one();
 	queue_lock.unlock();
-	
+
+	//std::cout << m_options.mpiRank << ": processer fase 4" << std::endl;
+
 	delete[] buffer;
+	temp.clear();
 
 	// Update counter of messages awaiting to be processed
 	std::lock_guard<std::mutex> processing_lock(processing_mutex);
@@ -852,7 +960,7 @@ int PAStar<N>::process_message(int sender_tag, char *buffer)
 		//std::cout << m_options.mpiRank << ": receiver finished processing" << std::endl;
 		receiver_condition.notify_one();
 	}
-
+//std::cout << m_options.mpiRank << ": processer fase 5" << std::endl;
 	return 0;
 }
 
@@ -1001,16 +1109,25 @@ void PAStar<N>::sync_pastar_data()
 template < int N >
 int PAStar<N>::pa_star(const Node<N> &node_zero, const Coord<N> &coord_final, const PAStarOpt &options)
 {
+    //std::cout << options.mpiRank << ": fase 4" << std::endl;
+
     if (options.threads_num <= 0)
         throw std::invalid_argument("Invalid number of threads");
     Coord<N>::configure_hash(options.hash_type, options.hash_shift);
 
+    //std::cout << options.mpiRank << ": fase 5" << std::endl;
+
+
     PAStar<N> pastar_instance(node_zero, options);
+
+    //std::cout << options.mpiRank << ": fase 6" << std::endl;
+
     std::vector<std::thread> threads;
     TimeCounter *t = new TimeCounter("Phase 2: PA-Star running time: ");
 
     // Create worker threads
     for (int i = 0; i < options.threads_num; ++i)
+	// Create worker threads
         threads.push_back(std::thread(&PAStar::worker, &pastar_instance, i, coord_final));
 
 	// Create sender thread
@@ -1024,17 +1141,23 @@ int PAStar<N>::pa_star(const Node<N> &node_zero, const Coord<N> &coord_final, co
         th.join();
     delete t;
 	
-	// Don't you dare removing that barrier
+    std::cout << options.mpiRank << ": fase 7" << std::endl;
+
+    // Don't you dare removing that barrier
     MPI_Barrier(MPI_COMM_WORLD);
 
-	pastar_instance.sync_pastar_data();
-	//std::cout << "preparing to print answer " << rank << std::endl;
+    pastar_instance.sync_pastar_data();
+    //std::cout << "preparing to print answer " << rank << std::endl;
 
-	if (options.mpiRank == 0)
+    std::cout << options.mpiRank << ": fase 8" << std::endl;
+
+
+    if (options.mpiRank == 0)
         pastar_instance.print_answer();
 
 	//std::cout << options.mpiRank << ": waiting for other processes to finish" << std::endl;
-	
+    std::cout << options.mpiRank << ": fase 9" << std::endl;
+
     return 0;
 }
 

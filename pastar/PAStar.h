@@ -22,7 +22,6 @@
 #include <vector>
 #include <tuple>
 #include <queue>
-#include <shared_mutex>
 
 
 #include "AStar.h"
@@ -125,24 +124,34 @@ class PAStar {
         std::atomic<bool> end_cond;
 		std::atomic<bool> end_condLocal;
 		std::mutex * check_stop_mutex;
-		std::queue < std::tuple< int, int, Node<N> > > send_queue;
 
+		//Structure that hold
+		std::vector< Node<N> > *send_queue; //In that way, we can have a vector of vectors of nodes
+		//std::queue < std::tuple< int, int, Node<N> > > send_queue;
+
+		//Structures for syncing final node and other data
         std::mutex final_node_mutex;
         Node<N> final_node;
-		Node<N> best_received;
-		std::mutex best_received_mutex;
+		//Node<N> best_received;
+		//std::mutex best_received_mutex;
         std::atomic<int> final_node_count;
 		long long int * nodes_openListSizeFinal;
 		long long int * nodes_closedListSizeFinal;
 
+		//Synchronization variables
         std::mutex sync_mutex;
         std::atomic<int> sync_count;
         std::condition_variable sync_condition;
 
+		//Sender and receiver mutex and condition variables
 		std::condition_variable sender_condition;
 		std::mutex sender_mutex;
 		std::condition_variable receiver_condition;
 		std::mutex receiver_mutex;
+		bool sender_empty;
+		int * threadLookupTable;
+
+	
 
         // Constructor
         PAStar(const Node<N> &node_zero, const PAStarOpt &opt);
@@ -182,6 +191,7 @@ class PAStar {
 		void flush_sender();
 		void flush_receiver();
 		long long int recv_cnt = 0;
+		bool end_of_transmission;
 
         // Backtrack
         void sync_pastar_data(void);

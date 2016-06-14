@@ -1,33 +1,40 @@
 # msa_astar and msa_pastar Makefile
 
 # Choose -std=c++11 or -std=c++0x
-#CXXVERSION = $(shell $(CXX) -dumpversion | cut -b 1-3)
-BOOST_COMPILE_FLAGS = -I"C:\tools\boost_1_61_0\"
-BOOST_LINK_FLAGS = /LIBPATH:"C:\tools\boost_1_61_0\lib64_msvc_14.0" -boost_program_options -lboost_system -lboost_filesystem \-lboost_mpi -lboost_serialization
-CXX = /c/Program\ Files\ \(x86\)/IntelSWTools/mpi/5.1.3.207/intel64/bin/mpicxx.bat
-#ifneq "$(filter g++, $(CXX))" ""
-#ifeq "$(CXXVERSION)" "4.6"
-#CPPSTD = -std=c++0x
-#endif
-#ifeq "$(VERSION)" "4.4"
-#$(error Bad $(CXX) version $(CXXVERSION). Atomic operations are required)
-#endif
-#endif
+CXXVERSION = $(shell $(CXX) -dumpversion | cut -b 1-3)
+#ONLY FOR OPENMPI
+#MPI_COMPILE_FLAGS = $(shell mpic++ --showme:compile)
+#MPI_LINK_FLAGS = $(shell mpic++ --showme:link)
+#CXX = $(shell mpic++ --showme:command)
 
-#ifeq "$(CPPSTD)" ""
-#CPPSTD = -std=c++11
-#endif
+#FOR MPICH
+MPI_COMPILE_FLAGS = -Wl,-Bsymbolic-functions -Wl,-z,relro -I/usr/include/mpich 
+MPI_LINK_FLAGS = -L/usr/lib/x86_64-linux-gnu -lmpichcxx -lmpich
+
+#CXX = clang
+ifneq "$(filter g++, $(CXX))" ""
+ifeq "$(CXXVERSION)" "4.6"
+CPPSTD = -std=c++0x
+endif
+ifeq "$(VERSION)" "4.4"
+$(error Bad $(CXX) version $(CXXVERSION). Atomic operations are required)
+endif
+endif
+
+ifeq "$(CPPSTD)" ""
+CPPSTD = -std=c++11
+endif
 
 BIN_DIR     = ./bin
-PASTAR_BIN  = $(BIN_DIR)/msa_pastar
+PASTAR_BIN  = $(BIN_DIR)/pastar
 
 TARGET      = $(PASTAR_BIN)
 
 SRC_DIR     = ./pastar
 INC_DIR     = ./pastar
 OBJ_DIR     = ./obj
-CPPFLAGS   += -W -g $(BOOST_COMPILE_FLAGS) -pthread $(CPPSTD)
-LDFLAGS    += -g -pthread -lstdc++ -lm  $(BOOST_LINK_FLAGS) $(CPPSTD)
+CPPFLAGS   += -W -g $(MPI_COMPILE_FLAGS) -pthread $(CPPSTD)
+LDFLAGS    += -g -pthread -lstdc++ -lm -lboost_program_options -lboost_system -lboost_filesystem \-lboost_serialization -llz4 $(MPI_LINK_FLAGS) $(CPPSTD)
 
 
 ifdef THREADS
@@ -83,6 +90,7 @@ PASTAR_SRCS = \
 
 INC_PATH += \
     -I$(INC_DIR) \
+    -I/usr/include \
 
 CPPFLAGS += \
     $(INC_PATH) \

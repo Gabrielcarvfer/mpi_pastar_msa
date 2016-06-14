@@ -170,7 +170,7 @@
     <ClCompile Include="msa_pastar_main.cpp" />
     <ClCompile Include="Node.cpp" />
     <ClCompile Include="PairAlign.cpp" />
-    <ClCompile Include="pastar.cpp" />
+    <ClCompile Include="PAStar.cpp" />
     <ClCompile Include="read_fasta.cpp" />
     <ClCompile Include="Sequences.cpp" />
     <ClCompile Include="TimeCounter.cpp" />
