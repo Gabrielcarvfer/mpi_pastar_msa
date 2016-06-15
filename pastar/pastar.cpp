@@ -16,6 +16,7 @@
 #include "Node.h"
 #include "TimeCounter.h"
 #include <chrono>
+#include <stdint.h>
 #include <lz4.h>
 
 #include <sstream>
@@ -28,10 +29,10 @@
 #include <boost/serialization/map.hpp>
 #include <boost/serialization/collection_size_type.hpp>
 
+typedef uint32_t u4;
+
 #define MPI_TAG_SEND_COMMON                0
 #define MPI_TAG_KILL_RECEIVER            205
-#define MPI_TAG_BROADCAST_NODE_TO_0      207
-#define DELAY 80
 
 
 #ifndef WIN32
@@ -796,16 +797,16 @@ int PAStar<N>::sender()
 				temp.clear();
 
 				//Experimental LZ4 compression
-				unsigned int len = ss.str().length() + 1;
-				unsigned int lz4len = LZ4_compressBound(len);
-				unsigned int lz4len2 = 0;
-				char * lz4Data = new char[lz4len + ( sizeof(unsigned int)*3)]();
+				u4 len = ss.str().length() + 1;
+				u4 lz4len = LZ4_compressBound((int)len);
+				u4 lz4len2 = 0;
+				char * lz4Data = new char[lz4len + ( sizeof(size_t)*3)]();
 					
 
-				lz4len2 = LZ4_compress(ss.str().c_str(), &lz4Data[sizeof(unsigned int)*3], len);
-				((unsigned int*)lz4Data)[0] = lz4len2+(sizeof(unsigned int)*3);
-				((unsigned int*)lz4Data)[1] = lz4len;
-				((unsigned int*)lz4Data)[2] = len;					
+				lz4len2 = LZ4_compress(ss.str().c_str(), &lz4Data[sizeof(u4)*3], (int)len);
+				((u4*)lz4Data)[0] = lz4len2+(sizeof(u4)*3);
+				((u4*)lz4Data)[1] = lz4len;
+				((u4*)lz4Data)[2] = len;					
 				//std::cout << m_options.mpiRank << ": sended length" << len << std::endl;
 				//std::cout << m_options.mpiRank << ": input sized " << len << " and maximum Lz4 sized " << lz4len2 << std::endl;
 				//std::cout << "sending: " << ss.str() << std::endl;
@@ -814,7 +815,7 @@ int PAStar<N>::sender()
 
 				//int iLocal = i % m_options.threads_num;
 				//int targetNode = i / m_options.threads_num;
-				MPI_Send(lz4Data, lz4len2+(sizeof(unsigned int)*3), MPI_CHAR, threadLookupTable[i], threadLookupTable[i+m_options.totalThreads], MPI_COMM_WORLD);//targetNode, iLocal, MPI_COMM_WORLD);
+				MPI_Send(lz4Data, (int) (lz4len2 + ( sizeof(u4) * 3 ) ), MPI_CHAR, threadLookupTable[i], threadLookupTable[i+m_options.totalThreads], MPI_COMM_WORLD);//targetNode, iLocal, MPI_COMM_WORLD);
 
 				//Lock again for next round
 				queue_lock.lock();
@@ -1008,98 +1009,99 @@ void PAStar<N>::print_answer()
 template < int N >
 void PAStar<N>::sync_pastar_data()
 {
-    // Before backtracing, the rank 0 receives bunch of data from every other rank
-	//MPI_Status status;
-	int n_bytes = 0;
-	int i, k;
-
-    // Send all node count and reopen data to rank 0
-    MPI_Gather(nodes_count, m_options.threads_num, MPI_LONG_LONG_INT, nodes_countFinal, m_options.threads_num, MPI_LONG_LONG_INT, 0, MPI_COMM_WORLD);
-    MPI_Gather(nodes_reopen, m_options.threads_num, MPI_LONG_LONG_INT, nodes_reopenFinal, m_options.threads_num, MPI_LONG_LONG_INT, 0, MPI_COMM_WORLD);
-
-	// Send open and closed list data from all nodes to rank 0
-	long long int * nodes_openListSize, *nodes_closedListSize;
-	nodes_openListSize = new long long int[m_options.threads_num];
-	nodes_closedListSize = new long long int[m_options.threads_num];
-
-	for (i = 0; i < m_options.threads_num; i++)
+	std::cout << m_options.mpiRank << ": syncing all the shit" << std::endl;
+	// Before backtracing, the rank 0 receives a bunch of data from every other rank
+	if (m_options.mpiRank != 0)
 	{
-		nodes_openListSize[i] = OpenList[i].size();
-		nodes_closedListSize[i] = ClosedList[i].size();
-	}
+		std::stringstream ss;
+		boost::archive::text_oarchive oa{ ss };
 
-	//std::cout << "gathering list sizes" << std::endl;
-	MPI_Gather(nodes_openListSize, m_options.threads_num, MPI_LONG_LONG_INT, nodes_openListSizeFinal, m_options.threads_num, MPI_LONG_LONG_INT, 0, MPI_COMM_WORLD);
-	MPI_Gather(nodes_closedListSize, m_options.threads_num, MPI_LONG_LONG_INT, nodes_closedListSizeFinal, m_options.threads_num, MPI_LONG_LONG_INT, 0, MPI_COMM_WORLD);
+		//oa & OpenList;
+		std::vector<long long> ncount, nreopen;
+		ncount.insert(ncount.end(), nodes_count, nodes_count + m_options.threads_num);
+		nreopen.insert(nreopen.end(), nodes_reopen, nodes_reopen + m_options.threads_num);
+		
+		oa << ncount;
+		oa << nreopen;
 
-	delete[] nodes_openListSize;
-	delete[] nodes_closedListSize;
-
-	// Send all closed lists from all nodes to rank 0
-
-	//First we need to serialize
-	std::stringstream ss;
-	boost::archive::text_oarchive oa{ ss };
-	for (k = 0; k < N + 1; k++)
-	{
-		oa << ClosedList[k];
-	}
-
-	//Then send serialized data sizes to rank 0
-	int ss_size = ss.str().size()+1;
-	int * ss_sizes = nullptr;
-	if (m_options.mpiRank == 0)
-		ss_sizes = new int[m_options.mpiCommSize]();
-	MPI_Gather(&ss_size, 1, MPI_INT, ss_sizes, 1, MPI_INT, 0, MPI_COMM_WORLD);
-
-	//Then send everything to node 0
-	char * ss_ss = nullptr;
-	int * ss_disp = nullptr;
-	if (m_options.mpiRank == 0)
-	{
-		int totalLen = 0;
-		ss_disp = new int[m_options.mpiCommSize]();
-
-		//compute displacements of data sent
-		ss_disp[0] = 0;
-		totalLen += ss_sizes[0];
-		for (k = 1; k < m_options.mpiCommSize; k++)
+		for (int i = 0; i < m_options.threads_num; i++)
 		{
-			ss_disp[k] = totalLen;
-			totalLen += ss_sizes[k];		
+			oa << ClosedList[i];
 		}
-		ss_ss = new char[totalLen]();
+
+		u4 len = ss.str().length() + 1;
+		u4 lz4len = LZ4_compressBound((int)len);
+		u4 lz4len2 = 0;
+		char * lz4Data = new char[lz4len + (sizeof(u4) * 3)]();
+
+		lz4len2 = LZ4_compress(ss.str().c_str(), &lz4Data[sizeof(u4) * 3], (int) len);
+		((u4*)lz4Data)[0] = lz4len2 + (sizeof(u4) * 3);
+		((u4*)lz4Data)[1] = lz4len;
+		((u4*)lz4Data)[2] = len;
+
+		MPI_Send(lz4Data, (int) (lz4len2 + ( sizeof(u4) * 3 ) ), MPI_CHAR, 0, 0, MPI_COMM_WORLD);
+		//std::cout << "sended from " << m_options.mpiRank << " closed size " << ClosedList[0].size() << " ncount size " << ncount.size() << " nreopen size " << nreopen.size() << std::endl;
+		delete[] lz4Data;
 	}
-
-	//send serialized closed lists to node 0
-	MPI_Gatherv((void*)ss.str().c_str(), ss_size, MPI_CHAR, ss_ss, ss_sizes, ss_disp, MPI_CHAR, 0, MPI_COMM_WORLD);
-
-	if (m_options.mpiRank == 0)
+	else
 	{
-		char * temp = nullptr;
-		//for each node
-		for (i = 0; i < m_options.mpiCommSize; i++)
+		int i, sender, n_bytes = 0;
+		MPI_Status status;
+		//Save stuff from node 0 into final structures
+		for (i = 0; i < m_options.threads_num; i++)
 		{
-			//read the block for current node
-			temp = new char[ss_sizes[i]]();
-			memcpy(temp, &ss_ss[ss_disp[i]], ss_sizes[i]);
+			nodes_countFinal[i] = nodes_count[i];
+			nodes_reopenFinal[i] = nodes_reopen[i];
+			ClosedListFinal[i] = ClosedList[i];
+		}
 
-			//std::cout << temp << std::endl;
-			std::stringstream ss(temp);
+		//Receive remote stuff
+		for (i = 1; i < m_options.mpiCommSize; i++)
+		{
+			std::cout << "vamos lá " << i << std::endl;
+			//Probe and receive final message from each rank
+			MPI_Probe(MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+			MPI_Get_count(&status, MPI_CHAR, &n_bytes);
+			sender = status.MPI_SOURCE;
+
+			char * buffer = new char[n_bytes]();
+			MPI_Recv(buffer, n_bytes, MPI_CHAR, sender, 0, MPI_COMM_WORLD, &status);
+
+			//Experimental LZ4 decompression
+			int lz4len = ((int*)buffer)[1];
+			int len = ((int*)buffer)[2];
+
+			char * tempBuff = new char[lz4len]();
+			LZ4_decompress_fast(&buffer[sizeof(int) * 3], tempBuff, len);
+			delete[] buffer;
+
+			//Unserialize data into place
+			std::stringstream ss(tempBuff);
 			boost::archive::text_iarchive ia{ ss };
 
-			//and then unserialize each closed list into final closed list
-			for (k = 0; k < m_options.threads_num; k++)
+			//Calculate offset to nodes
+			int offset = sender * m_options.threads_num;
+
+			//Alocate stuff
+			std::vector<int> ncount, nreopen;
+
+			//Recover stuff in same order as saved
+			ia >> ncount;
+			ia >> nreopen;
+
+			//Copy to final structures
+			for (int j = 0; j < m_options.threads_num; j++)
 			{
-				ia >> ClosedListFinal[i*m_options.threads_num+k];
-				//std::cout << "closedListFinal[" << i*m_options.threads_num + k << "] is " << ClosedListFinal[i*m_options.threads_num + k].size() << std::endl;
+				ia >> ClosedListFinal[offset + j];
+				nodes_countFinal[offset + j] = ncount[j];
+				nodes_reopenFinal[offset + j] = nreopen[j];
+				std::cout << "erro " << 4+j << std::endl;
 			}
-			delete[] temp;
+
+			delete[] tempBuff;
 		}
-		delete[] ss_ss;
-		delete[] ss_disp;
-		delete[] ss_sizes;
 	}
+	MPI_Barrier(MPI_COMM_WORLD);
 }
 
 /*!
@@ -1109,8 +1111,7 @@ void PAStar<N>::sync_pastar_data()
 template < int N >
 int PAStar<N>::pa_star(const Node<N> &node_zero, const Coord<N> &coord_final, const PAStarOpt &options)
 {
-    //std::cout << options.mpiRank << ": fase 4" << std::endl;
-
+    //std::cout << options.mpiRank << ": fase 4" << std::endl;;
     if (options.threads_num <= 0)
         throw std::invalid_argument("Invalid number of threads");
     Coord<N>::configure_hash(options.hash_type, options.hash_shift);
@@ -1157,6 +1158,8 @@ int PAStar<N>::pa_star(const Node<N> &node_zero, const Coord<N> &coord_final, co
 
 	//std::cout << options.mpiRank << ": waiting for other processes to finish" << std::endl;
     std::cout << options.mpiRank << ": fase 9" << std::endl;
+
+
 
     return 0;
 }
