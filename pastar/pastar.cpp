@@ -21,8 +21,8 @@
 
 #include <sstream>
 // include input and output archivers
-#include <boost/archive/text_oarchive.hpp>
-#include <boost/archive/text_iarchive.hpp>
+#include <boost/archive/binary_oarchive.hpp>
+#include <boost/archive/binary_iarchive.hpp>
 
 // include this header to serialize vectors, maps and other types
 #include <boost/serialization/vector.hpp>
@@ -30,6 +30,9 @@
 #include <boost/serialization/collection_size_type.hpp>
 
 typedef uint32_t u4;
+#define s_u4 (sizeof(u4))
+
+typedef int64_t u8;
 
 #define MPI_TAG_SEND_COMMON                0
 #define MPI_TAG_KILL_RECEIVER            205
@@ -81,8 +84,8 @@ PAStar<N>::PAStar(const Node<N> &node_zero, const struct PAStarOpt &opt)
     OpenList = new PriorityList<N>[m_options.threads_num]();
     ClosedList = new std::map< Coord<N>, Node<N> >[m_options.threads_num]();
 
-    nodes_count = new long long int[m_options.threads_num]();
-    nodes_reopen = new long long int[m_options.threads_num]();
+    nodes_count = new u8[m_options.threads_num]();
+    nodes_reopen = new u8[m_options.threads_num]();
 	
 
 	// The additional mutex and condition are used by sender thread
@@ -117,9 +120,9 @@ PAStar<N>::PAStar(const Node<N> &node_zero, const struct PAStarOpt &opt)
     {
         OpenListFinal = new PriorityList<N>[m_options.totalThreads];
         ClosedListFinal = new std::map< Coord<N>, Node<N> >[m_options.totalThreads];
-        nodes_countFinal = new long long int[m_options.totalThreads]();
-        nodes_reopenFinal = new long long int[m_options.totalThreads]();
-		nodes_openListSizeFinal = new long long int[m_options.totalThreads]();
+        nodes_countFinal = new u8[m_options.totalThreads]();
+        nodes_reopenFinal = new u8[m_options.totalThreads]();
+		nodes_openListSizeFinal = new u8[m_options.totalThreads]();
 
         OpenList[0].enqueue(node_zero);
     }
@@ -383,7 +386,7 @@ void PAStar<N>::worker_inner(int tid, const Coord<N> &coord_final)
                 
                 if (i >= m_options.mpiMin && i < m_options.mpiMax)
                 {
-					int iLocal = i % m_options.threads_num;
+					int iLocal = threadLookupTable[i + m_options.threads_num];
                     //std::cout << "happily, a local node" << std::endl;
                     std::lock_guard<std::mutex> queue_lock(queue_mutex[iLocal]);
                     queue_nodes[iLocal].insert(queue_nodes[iLocal].end(), neigh[i].begin(), neigh[i].end());
@@ -394,10 +397,8 @@ void PAStar<N>::worker_inner(int tid, const Coord<N> &coord_final)
 				{
 					//std::cout << "adding node to sender" << std::endl;
 					std::lock_guard<std::mutex> queue_lock(queue_mutex[m_options.threads_num]);
-					for (unsigned int j = 0; j < neigh[i].size(); j++)
-					{
+					if (neigh[i].front().get_f() <= final_node.get_f())
 						send_queue[i].insert(send_queue[i].end(), neigh[i].begin(), neigh[i].end());
-					}
 					queue_condition[m_options.threads_num].notify_one();
                 }
             }
@@ -515,7 +516,7 @@ bool PAStar<N>::check_stop(int tid)
 {
 //std::cout << m_options.mpiRank << ": fase 6 3 check_stop " << tid  << "fase 1" << std::endl;
    
-	long long int local, val;
+	u8 local, val;
 	//std::cout << m_options.mpiRank << " : entering check stop" << std::endl;
 	Node<N> n = final_node;
 	
@@ -599,7 +600,7 @@ bool PAStar<N>::check_stop(int tid)
 template < int N >
 bool PAStar<N>::check_stop_global(int tid)
 {
-	long long int val, remoteValues[2], *recvBuff;
+	u8 val, remoteValues[2], *recvBuff;
 	sync_threads(false);
 	// Each rank 0 thread send the process final node to other rank 0
 	if (tid == 0)
@@ -613,13 +614,13 @@ bool PAStar<N>::check_stop_global(int tid)
 		remoteValues[1] = 0;
 
 		if (m_options.mpiRank == 0)
-			recvBuff = new long long int[m_options.mpiCommSize]();
+			recvBuff = new u8[m_options.mpiCommSize]();
 
 		MPI_Gather(&val, 1, MPI_LONG_LONG_INT, recvBuff, 1, MPI_LONG_LONG_INT, 0, MPI_COMM_WORLD);
 
 		if (m_options.mpiRank == 0)
 		{
-			long long int min = LLONG_MAX, max = 0;
+			u8 min = LLONG_MAX, max = 0;
 			for (int i = 0; i < m_options.mpiCommSize; i++)
 			{
 				if (recvBuff[i] < remoteValues[0])
@@ -753,21 +754,21 @@ int PAStar<N>::sender()
 				queue_lock.unlock();
 
 				//std::cout << "oh, dang it, sending nodes to remote target" << std::endl;
-				std::stringstream ss;
-				boost::archive::text_oarchive oa{ ss };
+				std::ostringstream ss (std::ios_base::binary);
+				boost::archive::binary_oarchive oa{ ss };
 
 				oa & temp;
 				temp.clear();
 
 				//Experimental LZ4 compression
-				u4 len = ss.str().length() + 1;
-				u4 lz4len = LZ4_compressBound((int)len);
+				u4 len = (u4) (ss.str().length() + 1);
+				u4 lz4len = LZ4_compressBound( (u4) len );
 				u4 lz4len2 = 0;
-				char * lz4Data = new char[lz4len + ( sizeof(size_t)*3)]();
+				char * lz4Data = new char[lz4len + ( s_u4*3)]();
 					
 
-				lz4len2 = LZ4_compress(ss.str().c_str(), &lz4Data[sizeof(u4)*3], (int)len);
-				((u4*)lz4Data)[0] = lz4len2+(sizeof(u4)*3);
+				lz4len2 = LZ4_compress(ss.str().c_str(), &lz4Data[s_u4*3], (u4) len);
+				((u4*)lz4Data)[0] = lz4len2+(s_u4*3);
 				((u4*)lz4Data)[1] = lz4len;
 				((u4*)lz4Data)[2] = len;					
 				//std::cout << m_options.mpiRank << ": sended length" << len << std::endl;
@@ -778,7 +779,7 @@ int PAStar<N>::sender()
 
 				//int iLocal = i % m_options.threads_num;
 				//int targetNode = i / m_options.threads_num;
-				MPI_Send(lz4Data, (int) (lz4len2 + ( sizeof(u4) * 3 ) ), MPI_CHAR, threadLookupTable[i], threadLookupTable[i+m_options.totalThreads], MPI_COMM_WORLD);//targetNode, iLocal, MPI_COMM_WORLD);
+				MPI_Send(lz4Data, (int) (lz4len2 + ( s_u4 * 3 ) ), MPI_CHAR, threadLookupTable[i], threadLookupTable[i+m_options.totalThreads], MPI_COMM_WORLD);//targetNode, iLocal, MPI_COMM_WORLD);
 
 				//Lock again for next round
 				queue_lock.lock();
@@ -902,35 +903,24 @@ int PAStar<N>::process_message(int sender_tag, char *buffer)
 {
 //std::cout << m_options.mpiRank << ": processer fase 1" << std::endl;
 	//Experimental LZ4 decompression
-	int lz4len = ( (int*) buffer) [1];
-	int len = ( (int*) buffer) [2];
-
-	//std::cout << " data len "<<len<< " and lz4maxlen" << lz4len << std::endl;
-	
+	u4 lz4len = ( (u4*) buffer) [1];
+	u4 len = ( (u4*) buffer) [2];
 
 	char * tempBuff = new char[lz4len]();
-	LZ4_decompress_fast(&buffer[sizeof(int) * 3], tempBuff, len);
+	LZ4_decompress_fast(&buffer[s_u4 * 3], tempBuff, len);
 	
-	//std::cout << m_options.mpiRank << ": received length " << len << std::endl;
-	//std::cout << m_options.mpiRank << ": processer fase 2" << std::endl;
-	std::stringstream ss(tempBuff);
-	
+	//Prepare to deserialize stuff into place
+	std::istringstream ss(std::string(tempBuff, tempBuff + len), std::ios_base::binary);
 
 	//convert buffer to something useful, like thread id and node vector
-	//std::stringstream ss(buffer);
-	boost::archive::text_iarchive ia{ ss };
+	boost::archive::binary_iarchive ia{ ss };
 	std::vector<Node<N>> temp;
 	ia & temp;
-	//std::cout << m_options.mpiRank << ": processer fase 3" << std::endl;
-	//std::cout << ss.str() << std::endl;
 	delete[] tempBuff;
-
 
 	// Locking queue to add received stuff
 	std::unique_lock<std::mutex> queue_lock(queue_mutex[sender_tag]);
-	//std::cout << "process message ? " << end_of_transmission << std::endl;
-
-        queue_nodes[sender_tag].insert(queue_nodes[sender_tag].end(), temp.begin(), temp.end());
+    queue_nodes[sender_tag].insert(queue_nodes[sender_tag].end(), temp.begin(), temp.end());
 	queue_condition[sender_tag].notify_one();
 	queue_lock.unlock();
 
@@ -957,10 +947,10 @@ int PAStar<N>::process_message(int sender_tag, char *buffer)
 template < int N >
 void PAStar<N>::print_nodes_count()
 {
-    long long int nodes_total = 0;
-    long long int open_list_total = 0;
-    long long int closed_list_total = 0;
-    long long int nodes_reopen_total = 0;
+    u8 nodes_total = 0;
+    u8 open_list_total = 0;
+    u8 closed_list_total = 0;
+    u8 nodes_reopen_total = 0;
 
     std::cout << "Total nodes count:" << std::endl;
 
@@ -1002,37 +992,34 @@ void PAStar<N>::sync_pastar_data()
 	// Before backtracing, the rank 0 receives a bunch of data from every other rank
 	if (m_options.mpiRank != 0)
 	{
-		std::stringstream ss;
-		boost::archive::text_oarchive oa{ ss };
+		//Prepare structures for serialization
+		std::ostringstream ss (std::ios_base::binary);
+		boost::archive::binary_oarchive oa{ ss };
 
-		//oa & OpenList;
-		std::vector<long long> ncount, nreopen, nopenList;
-		ncount.insert(ncount.end(), nodes_count, nodes_count + m_options.threads_num);
-		nreopen.insert(nreopen.end(), nodes_reopen, nodes_reopen + m_options.threads_num);
-		
-		oa << ncount;
-		oa << nreopen;
-
+		//Serialize stuff to be sent
 		for (int i = 0; i < m_options.threads_num; i++)
 		{
 			oa << ClosedList[i];
-			nopenList.push_back(OpenList[i].size());
+			oa << nodes_count[i];
+			oa << nodes_reopen[i];
+			oa << OpenList[i].size();
 		}
 
-		oa << nopenList;
-
-		u4 len = ss.str().length() + 1;
+		//Experimental lz4 compression
+		u4 len = (u4) (ss.str().length() + 1);
 		u4 lz4len = LZ4_compressBound((int)len);
 		u4 lz4len2 = 0;
-		char * lz4Data = new char[lz4len + (sizeof(u4) * 3)]();
+		char * lz4Data = new char[lz4len + (s_u4 * 3)]();
 
-		lz4len2 = LZ4_compress(ss.str().c_str(), &lz4Data[sizeof(u4) * 3], (int) len);
-		((u4*)lz4Data)[0] = lz4len2 + (sizeof(u4) * 3);
+		lz4len2 = LZ4_compress(ss.str().c_str(), &lz4Data[s_u4 * 3], (int) len);
+		((u4*)lz4Data)[0] = lz4len2 + (s_u4 * 3);
 		((u4*)lz4Data)[1] = lz4len;
 		((u4*)lz4Data)[2] = len;
 
-		MPI_Send(lz4Data, (int) (lz4len2 + ( sizeof(u4) * 3 ) ), MPI_CHAR, 0, 0, MPI_COMM_WORLD);
-		//std::cout << "sended from " << m_options.mpiRank << " closed size " << ClosedList[0].size() << " ncount size " << ncount.size() << " nreopen size " << nreopen.size() << std::endl;
+		//Sending message
+		MPI_Send(lz4Data, (int) (lz4len2 + ( s_u4 * 3 ) ), MPI_CHAR, 0, 0, MPI_COMM_WORLD);
+
+		//Clearing buffer
 		delete[] lz4Data;
 	}
 	else
@@ -1051,7 +1038,6 @@ void PAStar<N>::sync_pastar_data()
 		//Receive remote stuff
 		for (i = 1; i < m_options.mpiCommSize; i++)
 		{
-			std::cout << "vamos lá " << i << std::endl;
 			//Probe and receive final message from each rank
 			MPI_Probe(MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
 			MPI_Get_count(&status, MPI_CHAR, &n_bytes);
@@ -1061,41 +1047,29 @@ void PAStar<N>::sync_pastar_data()
 			MPI_Recv(buffer, n_bytes, MPI_CHAR, sender, 0, MPI_COMM_WORLD, &status);
 
 			//Experimental LZ4 decompression
-			int lz4len = ((int*)buffer)[1];
-			int len = ((int*)buffer)[2];
-
+			u4 lz4len = ((u4*)buffer)[1];
+			u4 len    = ((u4*)buffer)[2];
 			char * tempBuff = new char[lz4len]();
-			LZ4_decompress_fast(&buffer[sizeof(int) * 3], tempBuff, len);
+			LZ4_decompress_fast(&buffer[s_u4 * 3], tempBuff, len);
 			delete[] buffer;
 
 			//Unserialize data into place
-			std::stringstream ss(tempBuff);
-			boost::archive::text_iarchive ia{ ss };
+			std::istringstream ss(std::string(tempBuff, tempBuff + len), std::ios_base::binary);
+			boost::archive::binary_iarchive ia{ ss };
 
-			//Calculate offset to nodes
+			//Calculate offset of nodes
 			int offset = sender * m_options.threads_num;
 
-			//Alocate stuff
-			std::vector<int> ncount, nreopen, nopenList;
-
 			//Recover stuff in same order as saved
-			ia >> ncount;
-			ia >> nreopen;
-
-			//Copy to final structures
 			for (int j = 0; j < m_options.threads_num; j++)
 			{
-				ia >> ClosedListFinal[offset + j];
-				nodes_countFinal[offset + j] = ncount[j];
-				nodes_reopenFinal[offset + j] = nreopen[j];
-				std::cout << "erro " << 4+j << std::endl;
-			}
-			ia >> nopenList;
-			for (int j = 0; j < m_options.threads_num; j++)
-			{
-				nodes_openListSizeFinal[offset + j] = nopenList[j];
+				ia & ClosedListFinal[offset + j];
+				ia & nodes_countFinal[offset + j];
+				ia & nodes_reopenFinal[offset + j];
+				ia & nodes_openListSizeFinal[offset + j];
 			}
 
+			//Free buffer
 			delete[] tempBuff;
 		}
 	}
@@ -1109,7 +1083,12 @@ void PAStar<N>::sync_pastar_data()
 template < int N >
 int PAStar<N>::pa_star(const Node<N> &node_zero, const Coord<N> &coord_final, const PAStarOpt &options)
 {
-    //std::cout << options.mpiRank << ": fase 4" << std::endl;;
+
+
+
+
+
+    //std::cout << options.mpiRank << ": fase 4" << std::endl;
     if (options.threads_num <= 0)
         throw std::invalid_argument("Invalid number of threads");
     Coord<N>::configure_hash(options.hash_type, options.hash_shift);
