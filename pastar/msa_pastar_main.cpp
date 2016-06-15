@@ -118,7 +118,7 @@ int main(int argc, char *argv[])
 	    std::string seq = sequences->get_seq(i);
 
 	    //broadcast size and content
-	    seqLen = seq.size()+1;
+	    seqLen = (int) (seq.size()+1);
 	    MPI_Bcast(&seqLen, 1, MPI_INT, 0, MPI_COMM_WORLD);
 	    MPI_Bcast((void*)seq.c_str(), seqLen, MPI_CHAR, 0, MPI_COMM_WORLD);
 	    }
@@ -127,7 +127,7 @@ int main(int argc, char *argv[])
     {
         MPI_Bcast(&numSeq, 1, MPI_INT, 0, MPI_COMM_WORLD);
 	
-	char * seqBuff = NULL;
+		char * seqBuff = NULL;
         //for each announced sequence
         for (i = 0; i < numSeq; i++)
         {

@@ -22,8 +22,6 @@
 #include <vector>
 #include <tuple>
 #include <queue>
-
-
 #include "AStar.h"
 #include "Coord.h"
 #include "CoordHash.h"
@@ -136,7 +134,6 @@ class PAStar {
 		//std::mutex best_received_mutex;
         std::atomic<int> final_node_count;
 		long long int * nodes_openListSizeFinal;
-		long long int * nodes_closedListSizeFinal;
 
 		//Synchronization variables
         std::mutex sync_mutex;

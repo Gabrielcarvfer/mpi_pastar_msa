@@ -120,7 +120,6 @@ PAStar<N>::PAStar(const Node<N> &node_zero, const struct PAStarOpt &opt)
         nodes_countFinal = new long long int[m_options.totalThreads]();
         nodes_reopenFinal = new long long int[m_options.totalThreads]();
 		nodes_openListSizeFinal = new long long int[m_options.totalThreads]();
-		nodes_closedListSizeFinal = new long long int[m_options.totalThreads]();
 
         OpenList[0].enqueue(node_zero);
     }
@@ -139,7 +138,6 @@ PAStar<N>::~PAStar()
     {
 		delete[] OpenListFinal;
 		delete[] ClosedListFinal;
-		delete[] nodes_closedListSizeFinal;
 		delete[] nodes_openListSizeFinal;
 		delete[] nodes_countFinal;
 		delete[] nodes_reopenFinal;
@@ -738,49 +736,14 @@ int PAStar<N>::sender()
 		// Polling queue
 		sender_empty = true;
 		//std::cout << m_options.mpiRank << ": checking if queue is empty" << std::endl;
-		for (i = 0; i < m_options.totalThreads; i++)
-		{
-			sender_empty &= send_queue[i].empty();
-		}
-		
-		// If empty
-		if (sender_empty)
-		{
-		
-			//If some node in killing queue, finish sender and receiver
-			if (!send_queue[m_options.totalThreads].empty() & !goodbye)
-			{
-				//std::cout << m_options.mpiRank << " sending finishing message" << std::endl;
-				MPI_Send((void*)&b, 2, MPI_CHAR, m_options.mpiRank, MPI_TAG_KILL_RECEIVER, MPI_COMM_WORLD);
-				goodbye = true;
-				send_queue[m_options.totalThreads].clear();
-			}
-
-			// If set goodbye, continue to finish
-			if (goodbye)
-			{
-				//std::cout << m_options.mpiRank << " saying goodbye" << std::endl;
-				sender_condition.notify_one();
-				queue_lock.unlock();
-				continue;
-			}
-			else
-			{
-				// Sinaliza buffer limpo e acorda quem estiver esperando
-				//std::cout << "sender without work, going to sleep" << std::endl;
-				sender_condition.notify_one();
-				queue_condition[m_options.threads_num].wait(queue_lock);
-				queue_lock.unlock();
-				continue;
-			}
-		}
-		//If normal operation
 		
 		//Select a thread to send all its nodes
 		for (i = 0; i < m_options.totalThreads; i++)
 		{
 			if (!send_queue[i].empty())
 			{
+				sender_empty = false;
+
 				//Copy to auxiliary buffer
 				std::vector<Node<N>> temp;
 				temp.insert(temp.end(), send_queue[i].begin(), send_queue[i].end());
@@ -821,10 +784,36 @@ int PAStar<N>::sender()
 				queue_lock.lock();
 			}
 		}
+
+		// If empty
+		if (sender_empty)
+		{
+
+			//If some node in killing queue, finish sender and receiver
+			if (!send_queue[m_options.totalThreads].empty() & !goodbye)
+			{
+				//std::cout << m_options.mpiRank << " sending finishing message" << std::endl;
+				MPI_Send((void*)&b, 2, MPI_CHAR, m_options.mpiRank, MPI_TAG_KILL_RECEIVER, MPI_COMM_WORLD);
+				goodbye = true;
+				send_queue[m_options.totalThreads].clear();
+			}
+
+			// If set goodbye, continue to finish
+			if (goodbye)
+			{
+				//std::cout << m_options.mpiRank << " saying goodbye" << std::endl;
+				sender_condition.notify_one();
+			}
+			else
+			{
+				// Sinaliza buffer limpo e acorda quem estiver esperando
+				//std::cout << "sender without work, going to sleep" << std::endl;
+				sender_condition.notify_one();
+				queue_condition[m_options.threads_num].wait(queue_lock);
+			}
+		}
 		//At the end, unlock the lock
 		queue_lock.unlock();
-
-		
 
 		send++;
 	} 
@@ -979,11 +968,11 @@ void PAStar<N>::print_nodes_count()
     {
 		std::cout << "tid " << i
 			 << "\tOpenList:" << nodes_openListSizeFinal[i]
-             << "\tClosedList:" << nodes_closedListSizeFinal[i]
+             << "\tClosedList:" << ClosedListFinal[i].size()
              << "\tReopen:" << nodes_reopenFinal[i]
              << "\tTotal: " << nodes_countFinal[i] << std::endl;
         open_list_total += nodes_openListSizeFinal[i];
-        closed_list_total += nodes_closedListSizeFinal[i];
+        closed_list_total += ClosedListFinal[i].size();
         nodes_reopen_total += nodes_reopenFinal[i];
         nodes_total += nodes_countFinal[i];
     }
@@ -1017,7 +1006,7 @@ void PAStar<N>::sync_pastar_data()
 		boost::archive::text_oarchive oa{ ss };
 
 		//oa & OpenList;
-		std::vector<long long> ncount, nreopen;
+		std::vector<long long> ncount, nreopen, nopenList;
 		ncount.insert(ncount.end(), nodes_count, nodes_count + m_options.threads_num);
 		nreopen.insert(nreopen.end(), nodes_reopen, nodes_reopen + m_options.threads_num);
 		
@@ -1027,7 +1016,10 @@ void PAStar<N>::sync_pastar_data()
 		for (int i = 0; i < m_options.threads_num; i++)
 		{
 			oa << ClosedList[i];
+			nopenList.push_back(OpenList[i].size());
 		}
+
+		oa << nopenList;
 
 		u4 len = ss.str().length() + 1;
 		u4 lz4len = LZ4_compressBound((int)len);
@@ -1053,6 +1045,7 @@ void PAStar<N>::sync_pastar_data()
 			nodes_countFinal[i] = nodes_count[i];
 			nodes_reopenFinal[i] = nodes_reopen[i];
 			ClosedListFinal[i] = ClosedList[i];
+			nodes_openListSizeFinal[i] = OpenList[i].size();
 		}
 
 		//Receive remote stuff
@@ -1083,7 +1076,7 @@ void PAStar<N>::sync_pastar_data()
 			int offset = sender * m_options.threads_num;
 
 			//Alocate stuff
-			std::vector<int> ncount, nreopen;
+			std::vector<int> ncount, nreopen, nopenList;
 
 			//Recover stuff in same order as saved
 			ia >> ncount;
@@ -1096,6 +1089,11 @@ void PAStar<N>::sync_pastar_data()
 				nodes_countFinal[offset + j] = ncount[j];
 				nodes_reopenFinal[offset + j] = nreopen[j];
 				std::cout << "erro " << 4+j << std::endl;
+			}
+			ia >> nopenList;
+			for (int j = 0; j < m_options.threads_num; j++)
+			{
+				nodes_openListSizeFinal[offset + j] = nopenList[j];
 			}
 
 			delete[] tempBuff;
