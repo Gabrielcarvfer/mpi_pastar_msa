@@ -27,6 +27,7 @@
 #include "CoordHash.h"
 #include "Node.h"
 #include "PriorityList.h"
+#include <shared_mutex>
 
 #ifndef THREADS_NUM
     #define THREADS_NUM std::thread::hardware_concurrency()
@@ -143,8 +144,10 @@ class PAStar {
 		//Sender and receiver mutex and condition variables
 		std::condition_variable sender_condition;
 		std::mutex sender_mutex;
+		std::mutex squeues_mutex;
 		std::condition_variable receiver_condition;
 		std::mutex receiver_mutex;
+		std::mutex *squeue_mutex;
 		bool sender_empty;
 		int * threadLookupTable;
 
