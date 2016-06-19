@@ -32,6 +32,7 @@ class Node
         friend std::ostream &operator<< <>(std::ostream &lhs, const Node &rhs);
         bool operator!=(const Node &rhs) const;
         void set_max();
+        void set_val(int val);
         int getNeigh(std::vector<Node> a[], int vec_size = 1);
         int get_g() const { return m_g; };
         int get_f() const { return m_f; };

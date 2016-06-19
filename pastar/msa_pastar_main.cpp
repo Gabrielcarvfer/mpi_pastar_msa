@@ -4,7 +4,7 @@
  *
  * \brief The main function for msa_pastar project
  */
-					  
+
 #include <iostream>
 #include "HeuristicHPair.h"
 #include "max_seq_helper.h"
@@ -57,7 +57,7 @@ int main(int argc, char *argv[])
 	//Inicia MPI e comunicador global
     //MPI_Init(&argc, &argv);
 	int provided = 0;
-	MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided);	 
+	MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided);
 
 	if (provided != MPI_THREAD_MULTIPLE)
 	{
@@ -65,7 +65,7 @@ int main(int argc, char *argv[])
 		//MPI_Abort(MPI_COMM_WORLD, 1);
 		//MPI_Finalize();
 		//exit(1);
-	} 
+	}
 
     MPI_Barrier(MPI_COMM_WORLD);
     PAStarOpt opt;
@@ -91,29 +91,29 @@ int main(int argc, char *argv[])
     int numSeq, seqLen, i;
 
     Sequences *sequences = Sequences::getInstance();
-	
+
     //std::cout << opt.mpiRank << ": fase 2" << std::endl;
     //Se noh de rank 0
     if (opt.mpiRank == 0)
     {
         //read sequences from file
-	if (read_fasta_file(filename) != 0)
-	{
-	    //erro no arquivo, aborta execucao
-	    MPI_Abort(MPI_COMM_WORLD, 1);
-	    MPI_Finalize();
-	    exit(1);
-	}
+        if (read_fasta_file(filename) != 0)
+        {
+            //erro no arquivo, aborta execucao
+            MPI_Abort(MPI_COMM_WORLD, 1);
+            MPI_Finalize();
+            exit(1);
+        }
 
-    //retrieve number of sequences
-	numSeq = Sequences::get_seq_num();
-	
-    //send sequences to other processes
-	MPI_Bcast(&numSeq, 1, MPI_INT, 0, MPI_COMM_WORLD);
+        //retrieve number of sequences
+        numSeq = Sequences::get_seq_num();
 
-	//for each read sequence
-	for (i = 0; i < numSeq; i++)
-	{
+        //send sequences to other processes
+        MPI_Bcast(&numSeq, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+        //for each read sequence
+        for (i = 0; i < numSeq; i++)
+        {
 	    //load sequence
 	    std::string seq = sequences->get_seq(i);
 
@@ -126,7 +126,7 @@ int main(int argc, char *argv[])
     else
     {
         MPI_Bcast(&numSeq, 1, MPI_INT, 0, MPI_COMM_WORLD);
-	
+
 		char * seqBuff = NULL;
         //for each announced sequence
         for (i = 0; i < numSeq; i++)

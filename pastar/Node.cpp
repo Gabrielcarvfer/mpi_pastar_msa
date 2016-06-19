@@ -7,7 +7,6 @@
 
 #include <algorithm>
 #include <iostream>
-#include <tuple>
 #include <vector>
 
 #include "Cost.h"
@@ -64,6 +63,12 @@ void Node<N>::set_max()
     parenti = (1 << N) - 1;
     m_g = m_f = std::numeric_limits<int>::max();
     pos = Sequences::get_final_coord<N>();
+}
+
+template < int N> 
+void Node<N>::set_val(int val)
+{
+    m_f = val;
 }
 
 //! Check if coord \a c belongs to the sequences' search space
@@ -165,14 +170,15 @@ int Node<N>::getNeigh(std::vector<Node> a[], int vec_size)
        third field, sequence2.
        Example, if sequence 0 and 2 matches, one of the vector fields
        contains first MATCH score, second 0, third 2. */
-    std::vector< std::tuple<int, int, int> > pairwise_costs;
+    std::vector< std::vector<int> > pairwise_costs;//std::tuple<int, int, int> > pairwise_costs;
 
     for (int i = 0; i < N - 1; i++)
     {
         for (int j = i + 1; j < N; j++)
         {
             int cost = Cost::cost(seq->get_seq(i)[pos[i]], seq->get_seq(j)[pos[j]]);
-            std::tuple<int, int, int> total_cost(cost, i, j);
+            //std::tuple<int, int, int> total_cost(cost, i, j);
+            std::vector<int>total_cost = {cost, i, j};
             pairwise_costs.push_back(total_cost);
         }
     }
@@ -186,7 +192,7 @@ int Node<N>::getNeigh(std::vector<Node> a[], int vec_size)
             int costs = 0; // match, mismatch and gap sum-of-pairs cost
 
             for (auto it = pairwise_costs.begin() ; it != pairwise_costs.end(); ++it)
-                costs += pairCost(i, std::get<0>(*it), std::get<1>(*it), std::get<2>(*it));
+                costs += pairCost(i,(*it)[0], (*it)[1], (*it)[2]);//pairCost(i, std::get<0>(*it), std::get<1>(*it), std::get<2>(*it));
             a[c.get_id(vec_size)].push_back(Node(m_g + costs, c, i));
         }
     }
