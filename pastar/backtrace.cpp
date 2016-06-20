@@ -54,7 +54,7 @@ void backtrace_create_alignment(std::list<char> *alignments, std::map<Coord<N>, 
     std::cout << "Final Score: " << current << std::endl;
     do 
     {
-        //std::cout << "Backtrace:\t" << current << std::endl;
+        std::cout << current.pos.get_id(list_size) << ":" << current << std::endl;
         for (int i = 0; i < N; i++)
         {
             char c;
@@ -67,6 +67,27 @@ void backtrace_create_alignment(std::list<char> *alignments, std::map<Coord<N>, 
         id = current.get_parent().get_id(list_size);
         current = ClosedList[id][current.get_parent()];
     } while (current.pos != Sequences::get_initial_coord<N>());
+}
+
+/*!
+* Using the node passed to backtrace who send that node to current rank
+*/
+template <int N>
+void backtrace_origin(std::map<Coord<N>, Node<N> > *ClosedList, int list_size, Node<N> target_node, int min, int max)
+{
+	Sequences *seq = Sequences::getInstance();
+
+	int id = seq->get_final_coord<N>().get_id(list_size);
+	Node<N> current = target_node;
+	do
+	{
+		id = current.get_parent().get_id(list_size);
+		//We've to brake before reaching the parent node, that is on a remote computer and cant be loaded if tried to
+		if ((id < min) | (id >= max))
+			break;
+		current = ClosedList[id][current.get_parent()];
+	} while (current.pos != Sequences::get_initial_coord<N>());
+	return current;
 }
 
 /*!

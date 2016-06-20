@@ -251,3 +251,6 @@ ModelManifest.xml
 
 # FAKE - F# Make
 .fake/
+/pastar_vnext
+/pastar/pastar.layout
+/pastar/pastar.cbp

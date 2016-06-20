@@ -27,8 +27,8 @@
 #include "CoordHash.h"
 #include "Node.h"
 #include "PriorityList.h"
-#include <shared_mutex>
 
+#define THREADS_NUM 2
 #ifndef THREADS_NUM
     #define THREADS_NUM std::thread::hardware_concurrency()
 #endif
@@ -135,6 +135,7 @@ class PAStar {
 		//std::mutex best_received_mutex;
         std::atomic<int> final_node_count;
 		long long int * nodes_openListSizeFinal;
+		bool remoteLowerVal;
 
 		//Synchronization variables
         std::mutex sync_mutex;
@@ -150,6 +151,7 @@ class PAStar {
 		std::mutex *squeue_mutex;
 		bool sender_empty;
 		int * threadLookupTable;
+        int remoteFinals;
 
 	
 
