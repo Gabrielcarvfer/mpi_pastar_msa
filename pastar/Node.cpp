@@ -165,15 +165,17 @@ int Node<N>::getNeigh(std::vector<Node> a[], int vec_size)
        third field, sequence2.
        Example, if sequence 0 and 2 matches, one of the vector fields
        contains first MATCH score, second 0, third 2. */
-    std::vector< std::vector<int> > pairwise_costs;
+    std::vector< std::vector<int> > pairwise_costs[(N-1)*2];
 
+    int k = 0;
     for (int i = 0; i < N - 1; i++)
     {
         for (int j = i + 1; j < N; j++)
         {
             int cost = Cost::cost(seq->get_seq(i)[pos[i]], seq->get_seq(j)[pos[j]]);
             std::vector<int>total_cost = {cost, i, j};
-            pairwise_costs.push_back(total_cost);
+            pairwise_costs[k] = total_cost;
+            k++;
         }
     }
 

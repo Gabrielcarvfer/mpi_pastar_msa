@@ -413,7 +413,7 @@ void PAStar<N>::process_final_node(int tid, const Node<N> &n)
 	{
 		if (n.pos.get_id(m_options.threads_num) == ((unsigned int)tid))
 		{
-			std::cout << "[proc: " << m_options.mpiRank << " - tid: " << tid << "] Possible answer found: " << n << std::endl;
+			//std::cout << "[proc: " << m_options.mpiRank << " - tid: " << tid << "] Possible answer found: " << n << std::endl;
 			// Broadcast the node
 			final_node = n;
 			final_node_count = 0;
@@ -650,7 +650,7 @@ int PAStar<N>::worker(int tid, const Coord<N> &coord_final)
 
 	//} while (check_stop_global(tid));
 
-	std::cout << "syncing global threads" << std::endl;
+	//std::cout << "syncing global threads" << std::endl;
 	//std::cout << m_options.mpiRank << ": fase 6 worker " << tid  << "fase 4" << std::endl;
 	//global sync with flush to garantee that no node will be stuck because a sender/receiver thread didn't died at right time
 	sync_threads(true);
@@ -659,7 +659,7 @@ int PAStar<N>::worker(int tid, const Coord<N> &coord_final)
 	//the first local thread of each node kill sender and receiver to prevent problems with MPI exchange
 	if (tid == 0)
 	{
-		std::cout << "preparing to exit" << std::endl;
+		//std::cout << "preparing to exit" << std::endl;
 		// awake receiver to die
 		Node<N> nullNode;
 		send_queue[m_options.totalThreads].push_back(nullNode);
