@@ -28,7 +28,6 @@
 #include "Node.h"
 #include "PriorityList.h"
 
-#define THREADS_NUM 2
 #ifndef THREADS_NUM
     #define THREADS_NUM std::thread::hardware_concurrency()
 #endif
