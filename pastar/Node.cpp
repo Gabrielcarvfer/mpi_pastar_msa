@@ -154,6 +154,8 @@ inline int Node<N>::pairCost(const int &neigh_num, const int &mm_cost, const int
  * Add all neighboors to a vector \a a. If it is not a board node,
  * 2pow(n-1) nodes are added.
  */
+#ifdef WIN32
+ //Optimized for Windows
 template < int N >
 int Node<N>::getNeigh(std::vector<Node> a[], int vec_size)
 {
@@ -165,7 +167,8 @@ int Node<N>::getNeigh(std::vector<Node> a[], int vec_size)
        third field, sequence2.
        Example, if sequence 0 and 2 matches, one of the vector fields
        contains first MATCH score, second 0, third 2. */
-    int pairwise_costs[(N-1)*2*3];
+    unsigned int size = (N-1)*2*3;
+    int pairwise_costs[size]
 
     int k = 0;
     for (int i = 0; i < N - 1; i++)
@@ -173,7 +176,7 @@ int Node<N>::getNeigh(std::vector<Node> a[], int vec_size)
         for (int j = i + 1; j < N; j++)
         {
             int cost = Cost::cost(seq->get_seq(i)[pos[i]], seq->get_seq(j)[pos[j]]);
-			pairwise_costs[k] = cost;
+            pairwise_costs[k] = cost;
 			pairwise_costs[k+1] = i;
 			pairwise_costs[k+2] = j;
             k=k+3;
@@ -187,22 +190,59 @@ int Node<N>::getNeigh(std::vector<Node> a[], int vec_size)
         if (borderCheck(c))
         { 
             int costs = 0; // match, mismatch and gap sum-of-pairs cost
-            for (unsigned int k = 0; k < ((N - 1) * 2 * 3); k=k+3)
-            {
-                costs += pairCost(i,pairwise_costs[k], pairwise_costs[k+1], pairwise_costs[k+2]);   
-            }
+            for (unsigned int k = 0; k < size; k=k+3)
+                costs += pairCost(i,pairwise_costs[k], pairwise_costs[k+1], pairwise_costs[k+2]);       
+            a[c.get_id(vec_size)].push_back(Node(m_g + costs, c, i));
+        }
+    }
+    return 0;
+}
+#endif
 
-            //If in main diagonal, keep with the owner thread
-            //Do that in expense of resending the same final node more than once
-            /*if (cnt == N-1)
-                a[(*this).pos.get_id(vec_size)].push_back(Node(m_g + costs, c, i));
-            else*/
-                a[c.get_id(vec_size)].push_back(Node(m_g + costs, c, i));
+#ifndef WIN32
+//Optimized for Linux
+template < int N >
+int Node<N>::getNeigh(std::vector<Node> a[], int vec_size)
+{
+    int i;
+    Sequences *seq = Sequences::getInstance();
+    Coord<N> c;
+
+    /* Vector of tuple. First field cost, Second field, sequence1.
+       third field, sequence2.
+       Example, if sequence 0 and 2 matches, one of the vector fields
+       contains first MATCH score, second 0, third 2. */
+    unsigned int size = (N-1)*2;
+    std::vector<std::vector<int>> pairwise_costs;
+
+    int k = 0;
+    for (int i = 0; i < N - 1; i++)
+    {
+        for (int j = i + 1; j < N; j++)
+        {
+            int cost = Cost::cost(seq->get_seq(i)[pos[i]], seq->get_seq(j)[pos[j]]);
+            std::vector<int> tuple = {cost, i, j};
+            pairwise_costs.push_back(tuple);
+            k++;
+        }
+    }
+
+    int n = bitSeq(N) - 1;
+    for (i = 1; i <= n; i++)
+    {
+        c = pos.neigh(i);
+        if (borderCheck(c))
+        { 
+            int costs = 0; // match, mismatch and gap sum-of-pairs cost
+            for (unsigned int k = 0; k < pairwise_costs.size(); k++)
+                costs += pairCost(i, pairwise_costs[k][0], pairwise_costs[k][1], pairwise_costs[k][2]);           
+            a[c.get_id(vec_size)].push_back(Node(m_g + costs, c, i));
         }
     }
     return 0;
 }
 
+#endif
 // This file have a friend function that also need to be templated to max seq
 #define DECLARE_NODE_FRIEND( X ) \
 template std::ostream& operator<< < X >(std::ostream&, Node< X > const&); \
