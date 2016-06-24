@@ -119,6 +119,14 @@ PAStar<N>::PAStar(const Node<N> &node_zero, const struct PAStarOpt &opt)
         send_queue[i] = new std::vector< Node <N>>();
     }
 
+    //Preallocating pairwise_costs structure
+    #ifdef WIN32
+    pairwise_costs = new int*[m_options.threads_num];
+    for (i = 0; i < m_options.threads_num; i++)
+        pairwise_costs[i] = new int[(N - 1) * 2 * 3];
+
+    #endif
+
     //Initializing message processing threads and their stuff
     processing_condition = new std::condition_variable[m_options.threads_num];
     processing_queue = new std::vector<char*>[m_options.threads_num];
@@ -127,7 +135,6 @@ PAStar<N>::PAStar(const Node<N> &node_zero, const struct PAStarOpt &opt)
     // Allocate final structures and enqueue first node if rank zero
     if (m_options.mpiRank == 0)
     {
-        OpenListFinal = new PriorityList<N>[m_options.totalThreads];
         ClosedListFinal = new std::map< Coord<N>, Node<N> >[m_options.totalThreads];
         nodes_countFinal = new long long int[m_options.totalThreads]();
         nodes_reopenFinal = new long long int[m_options.totalThreads]();
@@ -153,11 +160,20 @@ PAStar<N>::~PAStar()
     delete[] squeue_mutex;
     delete threadLookupTable;
 
+
+    //Freeing sender queues
     for (int i = 0; i < m_options.totalThreads+1; i++)
     {
         delete send_queue[i];
     }
     delete[] send_queue;
+
+    //Freeing pairwise costs structure
+    #ifdef WIN32
+    for (int i = 0; i < m_options.threads_num; i++)
+        delete[] pairwise_costs[i];
+    delete[] pairwise_costs;
+    #endif
 
     if (m_options.mpiRank == 0)
     {
@@ -371,6 +387,7 @@ void PAStar<N>::worker_inner(int tid, const Coord<N> &coord_final)
         //std::cout << "[" << m_options.mpiRank << ":" << tid << "] Opening node " << current << std::endl;
               
         current.getNeigh(neigh, m_options.totalThreads);
+        //current.getNeigh(neigh, m_options.totalThreads,pairwise_costs[tid]);
 
         // Reconciliation phase
         for (int i = 0; i < m_options.totalThreads; i++)

@@ -177,8 +177,9 @@ class PAStar {
         long long int recv_cnt = 0;
 
 		//Node pairwise costs variables
+#ifdef WIN32
 		int ** pairwise_costs;
-
+#endif
 
 
         // Constructor
