@@ -33,8 +33,8 @@ TARGET      = $(PASTAR_BIN)
 SRC_DIR     = ./pastar
 INC_DIR     = ./pastar
 OBJ_DIR     = ./obj
-CPPFLAGS   += -W -g $(MPI_COMPILE_FLAGS) -pthread $(CPPSTD)
-LDFLAGS    += -g -pthread -lstdc++ -lm -lboost_program_options -lboost_system -lboost_filesystem \-lboost_serialization -llz4 $(MPI_LINK_FLAGS) $(CPPSTD)
+CPPFLAGS   += -W $(MPI_COMPILE_FLAGS) $(CPPSTD)
+LDFLAGS    += -pthread -lstdc++ -lm -lboost_program_options -lboost_system -lboost_filesystem \-lboost_serialization -llz4 $(MPI_LINK_FLAGS) $(CPPSTD)
 
 
 ifdef THREADS
@@ -49,12 +49,13 @@ ifdef NO_LIB_BOOST
     CPPFLAGS += -DNO_LIB_BOOST
 endif
 
-ifndef DEBUG
-    OPTIMIZE = yes
-    LDFLAGS += -s
-else
+#ifndef DEBUG
+    #CPPFLAGS += -O3 #-march=native
+    #LDFLAGS += -s
+#else
     CPPFLAGS += -g
-endif
+    LDFLAGS += -g
+#endif
 
 ifdef PROFILE_GENERATE
     CPPFLAGS += -fprofile-generate

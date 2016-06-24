@@ -104,12 +104,15 @@ PAStar<N>::PAStar(const Node<N> &node_zero, const struct PAStarOpt &opt)
 			i++;
 		}
 	}
+
+	pairwise_costs = new int*[m_options.threads_num];
+	for (i = 0; i < m_options.threads_num; i++)
+		pairwise_costs[i] = new int[(N - 1) * 2 * 3];
 	//senderWait = new std::mutex();
 
     // Allocate final structures and enqueue first node if rank zero
     if (m_options.mpiRank == 0)
     {
-        OpenListFinal = new PriorityList<N>[m_options.totalThreads];
         ClosedListFinal = new std::map< Coord<N>, Node<N> >[m_options.totalThreads];
         nodes_countFinal = new long long int[m_options.totalThreads]();
         nodes_reopenFinal = new long long int[m_options.totalThreads]();
@@ -127,17 +130,16 @@ PAStar<N>::~PAStar()
     delete[] queue_mutex;
     delete[] queue_condition;
     delete[] queue_nodes;
+    delete[] squeue_mutex;
+    delete[] send_queue;
+    delete check_stop_mutex;
+    delete[] threadLookupTable;
 
-    if (m_options.mpiRank == 0)
-    {
-		delete[] OpenListFinal;
-		delete[] ClosedListFinal;
-		delete[] nodes_openListSizeFinal;
-		delete[] nodes_countFinal;
-		delete[] nodes_reopenFinal;
-
-    }
+    for (int i = 0; i < m_options.threads_num; i++)
+		delete[] pairwise_costs[i];
+	delete[] pairwise_costs;
 }
+
 #ifndef WIN32
 template < int N >
 int PAStar<N>::set_affinity(int tid)
@@ -335,8 +337,12 @@ void PAStar<N>::worker_inner(int tid, const Coord<N> &coord_final)
         // Expand phase
         //if (m_options.mpiRank == 0)
         //std::cout << "[" << m_options.mpiRank << ":" << tid << "] Opening node " << current << std::endl;
-              
+
+#ifdef WIN32   
+        current.getNeigh(neigh, m_options.totalThreads, pairwise_costs[tid]);
+#else
         current.getNeigh(neigh, m_options.totalThreads);
+#endif
 
         // Reconciliation phase
         for (int i = 0; i < m_options.totalThreads; i++)
@@ -668,6 +674,7 @@ int PAStar<N>::sender()
 	int i = 0, tag = 0;
 	const char b[] = "1";
 	bool goodbye = false;
+	char * lz4Data = NULL;
 
 	//std::cout << m_options.mpiRank << ": sender fase 1" << std::endl;
 
@@ -708,7 +715,7 @@ int PAStar<N>::sender()
 				u4 len = (u4) (ss.str().length() + 1);
 				u4 lz4len = LZ4_compressBound( (u4) len );
 				u4 lz4len2 = 0;
-				char * lz4Data = new char[lz4len + ( s_u4*3)]();
+				lz4Data = new char[lz4len + ( s_u4*3)]();
 
 				lz4len2 = LZ4_compress(ss.str().c_str(), &lz4Data[s_u4*3], (u4) len);
 				((u4*)lz4Data)[0] = lz4len2+(s_u4*3);
@@ -716,6 +723,7 @@ int PAStar<N>::sender()
 				((u4*)lz4Data)[2] = len;
 
 				MPI_Send(lz4Data, (int) (lz4len2 + ( s_u4 * 3 ) ), MPI_CHAR, threadLookupTable[i], threadLookupTable[i+m_options.totalThreads], MPI_COMM_WORLD);
+				delete[] lz4Data;
 			}
 		}
 
@@ -755,14 +763,12 @@ int PAStar<N>::sender()
     			queue_condition[m_options.threads_num].wait(sender_lock);
     		}
 		}
-
+		//std::this_thread::sleep_for(std::chrono::milliseconds(20));
 		send++;
 	}
 	//std::cout << m_options.mpiRank << ": unlocking the sender lock" << std::endl;
 	//At the end, unlock the lock
 	sender_lock.unlock();
-
-	delete[] threadLookupTable;
 
 	// Last notify to unlock flusher
 	sender_condition.notify_all();
@@ -815,6 +821,7 @@ int PAStar<N>::receiver(PAStar<N> * pastar_inst)
     			goodbye = true;
     			//as safety measure, wake up receiver to finish
     			queue_condition[m_options.threads_num].notify_one();
+				delete[] buffer;
                 break;
 
 
@@ -857,25 +864,23 @@ int PAStar<N>::process_message(int sender_tag, char *buffer)
 
 	char * tempBuff = new char[lz4len]();
 	LZ4_decompress_fast(&buffer[s_u4 * 3], tempBuff, len);
+	delete[] buffer;
+	
 
 	//Prepare to deserialize stuff into place
 	std::istringstream ss(std::string(tempBuff, tempBuff + len), std::ios_base::binary);
+	delete[] tempBuff;
 
 	//convert buffer to something useful, like thread id and node vector
 	boost::archive::binary_iarchive ia{ ss };
 	std::vector<Node<N>> temp;
 	ia & temp;
-	delete[] tempBuff;
 
 	// Locking queue to add received stuff
 	std::unique_lock<std::mutex> queue_lock(queue_mutex[sender_tag]);
     queue_nodes[sender_tag].insert(queue_nodes[sender_tag].end(), temp.begin(), temp.end());//temp.rbegin(), temp.rend());//temp.begin(), temp.end());
 	queue_condition[sender_tag].notify_one();
-	queue_lock.unlock();
-
-	//std::cout << m_options.mpiRank << ": processer fase 4" << std::endl;
-
-	delete[] buffer;
+	queue_lock.unlock();	
 	temp.clear();
 
 	// Update counter of messages awaiting to be processed
@@ -1085,6 +1090,8 @@ int PAStar<N>::pa_star(const Node<N> &node_zero, const Coord<N> &coord_final, co
     // Rank 0 prints answer
     if (options.mpiRank == 0)
         pastar_instance.print_answer();
+
+
 
     return 0;
 }

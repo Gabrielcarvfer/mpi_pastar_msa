@@ -1,0 +1,6 @@
+call "%VS120COMNTOOLS%vsvars32.bat"
+cd /d \path\to\lz4
+cl /c lib\lz4.c lib\lz4hc.c lib\lz4frame.c lib\xxhash.c
+lib lz4.obj lz4hc.obj lz4frame.obj xxhash.obj /OUT:liblz4.lib
+cl programs\lz4cli.c programs\lz4io.c programs\bench.c liblz4.lib /Ilib
+.\lz4cli -h

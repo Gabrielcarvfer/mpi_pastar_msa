@@ -108,44 +108,77 @@ int main(int argc, char *argv[])
         //retrieve number of sequences
         numSeq = Sequences::get_seq_num();
 
-        //send sequences to other processes
-        MPI_Bcast(&numSeq, 1, MPI_INT, 0, MPI_COMM_WORLD);
+        //Prepare structures for serialization
+        std::ostringstream ss (std::ios_base::binary);
+        boost::archive::binary_oarchive oa{ ss };
+
+        oa & numSeq;
 
         //for each read sequence
         for (i = 0; i < numSeq; i++)
         {
-	    //load sequence
-	    std::string seq = sequences->get_seq(i);
+	       //load sequence
+	       std::string seq = sequences->get_seq(i);
+           oa & seq;
+        }
 
-	    //broadcast size and content
-	    seqLen = (int) (seq.size()+1);
-	    MPI_Bcast(&seqLen, 1, MPI_INT, 0, MPI_COMM_WORLD);
-	    MPI_Bcast((void*)seq.c_str(), seqLen, MPI_CHAR, 0, MPI_COMM_WORLD);
-	    }
+        //Experimental lz4 compression
+        u4 len = (u4) (ss.str().length() + 1);
+        u4 lz4len = LZ4_compressBound((int)len);
+        u4 lz4len2 = 0;
+        char * lz4Data = new char[lz4len + (s_u4 * 3)]();
+
+        lz4len2 = LZ4_compress(ss.str().c_str(), &lz4Data[s_u4 * 3], (int) len);
+        ((u4*)lz4Data)[0] = lz4len2 + (s_u4 * 3);
+        ((u4*)lz4Data)[1] = lz4len;
+        ((u4*)lz4Data)[2] = len;
+
+        //Sending message
+        for (i = 1; i < opt.mpiCommSize; i++)
+            MPI_Send(lz4Data, (int) (lz4len2 + ( s_u4 * 3 ) ), MPI_CHAR, i, 0, MPI_COMM_WORLD);
+
+        //Clearing buffer
+        delete[] lz4Data;
     }
     else
     {
-        MPI_Bcast(&numSeq, 1, MPI_INT, 0, MPI_COMM_WORLD);
+            int i, sender, n_bytes = 0;
+            MPI_Status status;
 
-		char * seqBuff = NULL;
-        //for each announced sequence
-        for (i = 0; i < numSeq; i++)
-        {
-            //receive size of next sequence
-            MPI_Bcast(&seqLen, 1, MPI_INT, 0, MPI_COMM_WORLD);
+            MPI_Probe(0, 0, MPI_COMM_WORLD, &status);
+            MPI_Get_count(&status, MPI_CHAR, &n_bytes);
+            sender = status.MPI_SOURCE;
 
-            //prepare buffer
-            seqBuff = new char[seqLen];
+            char * buffer = new char[n_bytes]();
+            MPI_Recv(buffer, n_bytes, MPI_CHAR, sender, 0, MPI_COMM_WORLD, &status);
 
-            //receive sequence
-            MPI_Bcast(seqBuff, seqLen, MPI_CHAR, 0, MPI_COMM_WORLD);
-            std::string seq (seqBuff);
+            //Experimental LZ4 decompression
+            u4 lz4len = ((u4*)buffer)[1];
+            u4 len    = ((u4*)buffer)[2];
+            char * tempBuff = new char[lz4len]();
+            LZ4_decompress_fast(&buffer[s_u4 * 3], tempBuff, len);
+            delete[] buffer;
 
-            //save sequence to local process
-            sequences->set_seq(seq);
+            //Unserialize data into place
+            std::istringstream ss(std::string(tempBuff, tempBuff + len), std::ios_base::binary);
+            
+            //Free buffer
+            delete[] tempBuff;
+            boost::archive::binary_iarchive ia{ ss };
 
-	    delete[] seqBuff;
-        }
+            std::string seq;
+            int numSeq = 0;
+
+            ia & numSeq;
+            //Recover stuff in same order as saved
+            for (int j = 0; j < numSeq; j++)
+            {
+                ia & seq;
+                //save sequence to local process
+                sequences->set_seq(seq);
+            }   
+
+        
     }
 
     //std::cout << opt.mpiRank << ": fase 3" << std::endl;

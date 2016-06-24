@@ -195,10 +195,12 @@ int Node<N>::getNeigh(std::vector<Node> a[], int vec_size, int * pairwise_costs)
     }
     return 0;
 }
-#else
+#endif
+
+#ifndef WIN32
 //Optimized for Linux
 template < int N >
-int Node<N>::getNeigh(std::vector<Node> a[], int vec_size)
+int Node<N>::getNeigh(std::vector<Node> a[], int vec_size, int* pairwise)
 {
     int i;
     Sequences *seq = Sequences::getInstance();

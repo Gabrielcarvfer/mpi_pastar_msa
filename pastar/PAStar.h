@@ -28,7 +28,23 @@
 #include "Node.h"
 #include "PriorityList.h"
 
-#define THREADS_NUM 2
+ #include <stdint.h>
+#include <lz4.h>
+
+#include <sstream>
+// include input and output archivers
+#include <boost/archive/binary_oarchive.hpp>
+#include <boost/archive/binary_iarchive.hpp>
+
+// include this header to serialize vectors, maps and other types
+#include <boost/serialization/vector.hpp>
+#include <boost/serialization/map.hpp>
+#include <boost/serialization/collection_size_type.hpp>
+
+typedef uint32_t u4;
+
+#define s_u4 (sizeof(u4))
+
 #ifndef THREADS_NUM
     #define THREADS_NUM std::thread::hardware_concurrency()
 #endif
@@ -125,7 +141,7 @@ class PAStar {
 		std::mutex * check_stop_mutex;
 
 		//Structure that hold
-		std::vector< Node<N> > *send_queue; //In that way, we can have a vector of vectors of nodes
+		std::vector< Node<N> > **send_queue; //In that way, we can have a vector of vectors of nodes
 		//std::queue < std::tuple< int, int, Node<N> > > send_queue;
 
 		//Structures for syncing final node and other data
@@ -152,6 +168,9 @@ class PAStar {
 		bool sender_empty;
 		int * threadLookupTable;
         int remoteFinals;
+
+		//Node pairwise costs variables
+		int ** pairwise_costs;
 
 	
 
