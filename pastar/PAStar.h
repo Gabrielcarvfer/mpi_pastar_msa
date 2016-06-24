@@ -147,8 +147,7 @@ class PAStar {
 		//Structures for syncing final node and other data
         std::mutex final_node_mutex;
         Node<N> final_node;
-		//Node<N> best_received;
-		//std::mutex best_received_mutex;
+        
         std::atomic<int> final_node_count;
 		long long int * nodes_openListSizeFinal;
 		bool remoteLowerVal;
@@ -167,7 +166,6 @@ class PAStar {
 		std::mutex *squeue_mutex;
 		bool sender_empty;
 		int * threadLookupTable;
-        int remoteFinals;
 
 		//Node pairwise costs variables
 		int ** pairwise_costs;
@@ -205,7 +203,6 @@ class PAStar {
         int receiver(PAStar<N> * pastar_inst);
 		int sender(void);
 		int process_message(int sender_tag, char *buffer);
-		long long int send = 0, recv = 0;
 		std::mutex processing_mutex;
 		std::mutex sync_mutex_global;
 		std::condition_variable sync_condition_global;

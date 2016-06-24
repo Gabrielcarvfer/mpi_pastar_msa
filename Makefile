@@ -87,7 +87,7 @@ COMMON_CPP_SRCS += \
 
 PASTAR_SRCS = \
     $(SRC_DIR)/msa_pastar_main.cpp \
-    $(SRC_DIR)/PAStar.cpp \
+    $(SRC_DIR)/pastar.cpp \
 
 INC_PATH += \
     -I$(INC_DIR) \
