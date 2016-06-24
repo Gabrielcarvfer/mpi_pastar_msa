@@ -118,6 +118,8 @@ class PAStar {
     public:
         static int pa_star(const Node<N> &node_zero, const Coord<N> &coord_final, const PAStarOpt &options);
 
+        std::vector<std::thread> proc_threads;
+
     private:
         // Members
         const PAStarOpt m_options;
@@ -157,20 +159,27 @@ class PAStar {
         std::atomic<int> sync_count;
         std::condition_variable sync_condition;
 
-		//Sender and receiver mutex and condition variables
+		//Sender mutex and condition variables
 		std::condition_variable sender_condition;
 		std::mutex sender_mutex;
 		std::mutex squeues_mutex;
-		std::condition_variable receiver_condition;
-		std::mutex receiver_mutex;
 		std::mutex *squeue_mutex;
 		bool sender_empty;
 		int * threadLookupTable;
 
+        //Receiver mutex and condition variables
+        std::condition_variable receiver_condition;
+        std::mutex receiver_mutex;
+        std::condition_variable *processing_condition;
+        std::vector<char*> * processing_queue;
+        std::mutex * processing_mutexes;
+        bool recv_goodbye = false;
+        long long int recv_cnt = 0;
+
 		//Node pairwise costs variables
 		int ** pairwise_costs;
 
-	
+
 
         // Constructor
         PAStar(const Node<N> &node_zero, const PAStarOpt &opt);
@@ -202,13 +211,12 @@ class PAStar {
         // Receiver Function
         int receiver(PAStar<N> * pastar_inst);
 		int sender(void);
-		int process_message(int sender_tag, char *buffer);
+		int process_message(int tid);
 		std::mutex processing_mutex;
 		std::mutex sync_mutex_global;
 		std::condition_variable sync_condition_global;
 		void flush_sender();
 		void flush_receiver();
-		long long int recv_cnt = 0;
 		bool end_of_transmission;
 
         // Backtrack

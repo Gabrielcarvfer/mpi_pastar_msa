@@ -119,6 +119,11 @@ PAStar<N>::PAStar(const Node<N> &node_zero, const struct PAStarOpt &opt)
         send_queue[i] = new std::vector< Node <N>>();
     }
 
+    //Initializing message processing threads and their stuff
+    processing_condition = new std::condition_variable[m_options.threads_num];
+    processing_queue = new std::vector<char*>[m_options.threads_num];
+    processing_mutexes = new std::mutex[m_options.threads_num];
+
     // Allocate final structures and enqueue first node if rank zero
     if (m_options.mpiRank == 0)
     {
@@ -322,6 +327,10 @@ void PAStar<N>::worker_inner(int tid, const Coord<N> &coord_final)
 	std::vector< Node<N> > *neigh = new std::vector< Node<N> >[m_options.totalThreads];
     int actualTid = tid + m_options.mpiMin;
 
+    std::default_random_engine generator;
+    //std::uniform_int_distribution<int> distribution(0,10);
+    //auto dice = std::bind ( distribution, generator );
+
     // Loop ended by process_final_node
     while (end_condLocal == false)
     {
@@ -346,6 +355,7 @@ void PAStar<N>::worker_inner(int tid, const Coord<N> &coord_final)
             nodes_reopen[tid] += 1;
         }
 
+       
         //std::cout << m_options.mpiRank << "-" << tid << ": " << current << std::endl;
         ClosedList[tid][current.pos] = current;
 
@@ -357,7 +367,7 @@ void PAStar<N>::worker_inner(int tid, const Coord<N> &coord_final)
         }
 
         // Expand phase
-        //if (m_options.mpiRank == 0)
+        //if (m_options.mpiRank == 1)
         //std::cout << "[" << m_options.mpiRank << ":" << tid << "] Opening node " << current << std::endl;
               
         current.getNeigh(neigh, m_options.totalThreads);
@@ -377,18 +387,33 @@ void PAStar<N>::worker_inner(int tid, const Coord<N> &coord_final)
                    //wich can be local
                 if (i >= m_options.mpiMin && i < m_options.mpiMax)
                 {
-					int iLocal = i - m_options.mpiMin;
+					int iLocal = threadLookupTable[i + m_options.totalThreads];
                     
-                    std::lock_guard<std::mutex> queue_lock(queue_mutex[iLocal]);
+                    std::unique_lock<std::mutex> queue_lock(queue_mutex[iLocal]);
                     queue_nodes[iLocal].insert(queue_nodes[iLocal].end(), neigh[i].begin(), neigh[i].end());
+                    queue_lock.unlock();
                     queue_condition[iLocal].notify_one();
                 }
                 //or remote
 				else
 				{
-					std::lock_guard<std::mutex> queue_lock(squeue_mutex[i]);
+					std::unique_lock<std::mutex> queue_lock(squeue_mutex[i]);
 					send_queue[i]->insert(send_queue[i]->end(), neigh[i].begin(), neigh[i].end());
+                    queue_lock.unlock();
 					queue_condition[m_options.threads_num].notify_one();
+
+                    //adding some probability to check if we're enqueueing locally too
+                    //to enhance the throuput
+                    /*if (dice())
+                    {
+                        //std::cout << "oops, adding to local queue" << std::endl;
+                        int iLocal = threadLookupTable[i + m_options.totalThreads];
+                    
+                        std::unique_lock<std::mutex> queue_lock(queue_mutex[iLocal]);
+                        queue_nodes[iLocal].insert(queue_nodes[iLocal].end(), neigh[i].begin(), neigh[i].end());
+                        queue_lock.unlock();
+                        queue_condition[iLocal].notify_one();
+                    }  */
 
                 }
             }
@@ -448,8 +473,8 @@ void PAStar<N>::process_final_node(int tid, const Node<N> &n)
 
 
 			//If thread found the node, share it with other processes
-			if (originRank == m_options.mpiRank)
-			{
+			//if (originRank == m_options.mpiRank)
+			//{
 				//std::cout << m_options.mpiRank << "- origin " << originRank << "-" << tid << ": broadcasting " << n << " to all other nodes" << std::endl;
 				//For remote threads: send messages to be broadcasted between node threads
 				for (int i = tid; i < m_options.totalThreads; i=i+m_options.threads_num)
@@ -458,7 +483,7 @@ void PAStar<N>::process_final_node(int tid, const Node<N> &n)
 					send_queue[i]->push_back(n);
 				}
 				queue_condition[m_options.threads_num].notify_one();
-			}
+			//}
 
 			final_node_lock.unlock();
 		}
@@ -497,7 +522,7 @@ bool PAStar<N>::check_stop(int tid)
 	Node<N> n = final_node;
 
 	wake_all_queue();
-
+    //std::cout << m_options.mpiRank << ":checking stop" << std::endl;
     //Sync all local and global threads, flushing senders and receivers from all processes
     sync_threads(true);
    
@@ -517,7 +542,7 @@ bool PAStar<N>::check_stop(int tid)
 	if (tid == 0)
 	{
 		remoteLowerVal = false;
-		//std::cout << m_options.mpiRank << ": sender queue size at global ckeck" << send_queue.size() << std::endl;
+		//std::cout << m_options.mpiRank << ": sender queue size at global ckeck" << send_queue[tid]->size() << std::endl;
 		// If end_cond = true, then we might be in a false end where everyone agrees with its own final node;
 		local = final_node.get_f();
 
@@ -579,7 +604,7 @@ bool PAStar<N>::check_stop_global(int tid)
 {
     if (tid == 0)
     {
-        std::cout << m_options.mpiRank << ": sending request to arbiter" << std::endl;
+        //std::cout << m_options.mpiRank << ": sending request to arbiter" << std::endl;
 
         //Send arbiter check request
         if (m_options.mpiRank != 0)
@@ -600,12 +625,12 @@ bool PAStar<N>::check_stop_global(int tid)
 	   local = final_node.get_f();
 
         MPI_Allreduce(&local, &val, 1, MPI_LONG_LONG_INT, MPI_MIN, MPI_COMM_WORLD);
-        std::cout << m_options.mpiRank << ": global check: local " << local << " and global " << val << std::endl;
+        //std::cout << m_options.mpiRank << ": global check: local " << local << " and global " << val << std::endl;
         
         //Local value isnt global minimum
         if (local < val)
         {
-            std::cout << m_options.mpiRank << ": listen, I don't have the lowest node" << std::endl;
+            //std::cout << m_options.mpiRank << ": listen, I don't have the lowest node" << std::endl;
             end_condLocal = false;
 
         
@@ -697,6 +722,9 @@ int PAStar<N>::sender()
 
 	std::unique_lock<std::mutex> sender_lock(squeues_mutex);
 
+    //Preallocating vector to reduce time of locked queue
+    std::vector< Node<N> >* ptr = new std::vector< Node<N> >(); 
+
 	while (!goodbye)
 	{
 		sender_empty = true;
@@ -714,12 +742,14 @@ int PAStar<N>::sender()
 
 
 				//Copy to auxiliary buffer
-				std::vector<Node<N>>* temp = send_queue[i];
+				std::vector<Node<N>>* temp = send_queue[i]; 
 
-                send_queue[i] = new std::vector< Node <N> >();
+                send_queue[i] = ptr; //prealocate firstm to reduce time blocked
 
 				//Unlock send_queue for continuous operation
 				squeue_mutex[i].unlock();
+
+                ptr = new std::vector< Node <N> >();
 
 				//std::cout << "oh, dang it, sending nodes to remote target" << std::endl;
 				std::ostringstream ss (std::ios_base::binary);
@@ -740,6 +770,7 @@ int PAStar<N>::sender()
 				((u4*)lz4Data)[1] = lz4len;
 				((u4*)lz4Data)[2] = len;
 
+                //std::cout << m_options.mpiRank << ": sending message" << std::endl;
 				MPI_Send(lz4Data, (int) (lz4len2 + ( s_u4 * 3 ) ), MPI_CHAR, threadLookupTable[i], threadLookupTable[i+m_options.totalThreads], MPI_COMM_WORLD);
                 delete[] lz4Data;			
             }
@@ -781,7 +812,9 @@ int PAStar<N>::sender()
     			queue_condition[m_options.threads_num].wait(sender_lock);
     		}
 		}
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
 	}
+    delete ptr;
 	//At the end, unlock the lock
 	sender_lock.unlock();
 
@@ -794,34 +827,36 @@ int PAStar<N>::sender()
 template < int N >
 int PAStar<N>::receiver(PAStar<N> * pastar_inst)
 {
+    //Initializing MPI and working variables
     MPI_Status status;
     int n_bytes = 0;
     int sender = 0;
     int sender_tag = 0;
     int i = 0, flag = 0;
     char * buffer = NULL;
-    bool goodbye = false;
-    //std::cout << m_options.mpiRank << ": receiver fase 1" << std::endl;
-    while (!goodbye)
+    int prob = 1;
+
+    while (!recv_goodbye)
     {
-		//std::unique_lock<std::mutex> lock(*senderWait);
-		// std::cout << "waiting for probe" << std::endl;
-        //MPI_Probe(MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+        //std::cout << m_options.mpiRank << ": checking if any message was received" << std::endl;
 		flag = 0;
 
         MPI_Iprobe(MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &flag, &status);
 
 		if (!flag)
         {
+            //std::cout << m_options.mpiRank << ": nope, yielding" << std::endl;
+            std::this_thread::sleep_for(std::chrono::milliseconds(prob = prob << 1));
             std::this_thread::yield();
 			continue;
         }
+        prob = 1;
 
 		MPI_Get_count(&status, MPI_CHAR, &n_bytes);
 		sender = status.MPI_SOURCE;
 		sender_tag = status.MPI_TAG;
 
-		//std::cout << m_options.mpiRank << ":probe returned node " << status.MPI_SOURCE << " sending " << n_bytes << " bytes of data" << std::endl;
+		//std::cout << m_options.mpiRank << ":probe returned node " << status.MPI_SOURCE << " sending " << n_bytes << " bytes of data " << std::endl;
 		if (n_bytes == 0)
 		{
 			MPI_Recv(NULL, 0, MPI_CHAR, sender, sender_tag, MPI_COMM_WORLD, &status);
@@ -837,7 +872,7 @@ int PAStar<N>::receiver(PAStar<N> * pastar_inst)
             case MPI_TAG_KILL_RECEIVER:
     		
     			//std::cout << "we are finishing, goodbye" << std::endl;
-    			goodbye = true;
+    			recv_goodbye = true;
     			//as safety measure, wake up receiver to finish
     			queue_condition[m_options.threads_num].notify_one();
                 break;
@@ -847,13 +882,19 @@ int PAStar<N>::receiver(PAStar<N> * pastar_inst)
             default:
     			if (n_bytes == ((int*)buffer)[0])
     			{
+                    //std::cout << m_options.mpiRank << ":locking counter" << std::endl;
         			//Lock counter of messages awaiting to be processed
-        			std::lock_guard<std::mutex> lock(processing_mutex);
+        			std::unique_lock<std::mutex> lock(processing_mutex);
         			recv_cnt++;
+                    lock.unlock();
 
-        			//Create a processing thread passing buffer and sender_tag
-        			std::thread t(&PAStar::process_message, pastar_inst, sender_tag, buffer);
-        			t.detach();
+                    //std::cout << m_options.mpiRank << ":unlocking counter and locking proc queue " << sender_tag << std::endl;
+                    //Enqueue buffer pointer to be processed later
+                    std::unique_lock<std::mutex> proclock (processing_mutexes[sender_tag]);
+                    processing_queue[sender_tag].push_back(buffer);
+                    proclock.unlock();
+                    //std::cout << m_options.mpiRank << ":unlocking proc queue and notifying" << std::endl;
+                    processing_condition[sender_tag].notify_one();
     			}
     			else
     			{
@@ -862,6 +903,24 @@ int PAStar<N>::receiver(PAStar<N> * pastar_inst)
                 break;   
 		}
 	}
+
+    //std::cout << m_options.mpiRank << ": destroying processing threads" << std::endl;
+    // Wake processers then join them
+    for (i = 0; i < m_options.threads_num; i++)
+    {
+        processing_condition[i].notify_one();
+        proc_threads[i].join();
+    }
+
+    //std::cout << m_options.mpiRank << ": cleaning procesing threads shit" << std::endl;
+
+    //Clean allocated stuff
+    delete[] processing_queue;
+    delete[] processing_condition;
+    delete[] processing_mutexes;
+
+    //std::cout << m_options.mpiRank << ": so long and thanks for all the fish" << std::endl;
+
 	// Last notify to unlock flushers
 	receiver_condition.notify_one();
     return 0;
@@ -869,48 +928,79 @@ int PAStar<N>::receiver(PAStar<N> * pastar_inst)
 
 //! Execute a receiver thread, with tid = numThreads + 2
 template < int N >
-int PAStar<N>::process_message(int sender_tag, char *buffer)
+//int PAStar<N>::process_message(int sender_tag, char *buffer)
+int PAStar<N>::process_message(int tid)
 {
-//std::cout << m_options.mpiRank << ": processer fase 1" << std::endl;
-	//Experimental LZ4 decompression
-	u4 lz4len = ( (u4*) buffer) [1];
-	u4 len = ( (u4*) buffer) [2];
+    char * buffer = NULL;
+    //std::cout << m_options.mpiRank << ": proc_thread " << tid << " started" << std::endl;
+    while(!recv_goodbye)
+    {
+        //Check if there are messages to process
+        std::unique_lock<std::mutex> lock (processing_mutexes[tid]);
+        //std::cout << m_options.mpiRank << ": proc_thread " << tid << " checking queue " << processing_queue[tid].size() << std::endl;
+        if (processing_queue[tid].empty())
+        {
+            //std::cout << m_options.mpiRank << ": proc_thread " << tid << " going to sleep" << std::endl;
+            processing_condition[tid].wait(lock);
+            lock.unlock();
+            continue;
+        }
 
-	char * tempBuff = new char[lz4len]();
-	LZ4_decompress_fast(&buffer[s_u4 * 3], tempBuff, len);
+        //std::cout << m_options.mpiRank << ": proc_thread " << tid << " working hard" << std::endl;
 
-	//Prepare to deserialize stuff into place
-	std::istringstream ss(std::string(tempBuff, tempBuff + len), std::ios_base::binary);
+        //Copy pointer and unlock queue, permitting continuous operation
+        buffer = processing_queue[tid].back();
+        processing_queue[tid].pop_back();
+        lock.unlock();
 
-	//convert buffer to something useful, like thread id and node vector
-	boost::archive::binary_iarchive ia{ ss };
-	std::vector<Node<N>> temp;
-	ia & temp;
-	delete[] tempBuff;
 
-	// Locking queue to add received stuff
-	std::unique_lock<std::mutex> queue_lock(queue_mutex[sender_tag]);
-    queue_nodes[sender_tag].insert(queue_nodes[sender_tag].end(), temp.begin(), temp.end());//temp.rbegin(), temp.rend());//temp.begin(), temp.end());
-	queue_condition[sender_tag].notify_one();
-	queue_lock.unlock();
 
-	//std::cout << m_options.mpiRank << ": processer fase 4" << std::endl;
+    	//Experimental LZ4 decompression
+    	u4 lz4len = ( (u4*) buffer) [1];
+    	u4 len = ( (u4*) buffer) [2];
 
-	delete[] buffer;
-	temp.clear();
+    	char * tempBuff = new char[lz4len]();
+    	LZ4_decompress_fast(&buffer[s_u4 * 3], tempBuff, len);
 
-	// Update counter of messages awaiting to be processed
-	std::lock_guard<std::mutex> processing_lock(processing_mutex);
-	recv_cnt--;
-	//std::cout << m_options.mpiRank << ": recv_cnt " << recv_cnt << std::endl;
+    	//Prepare to deserialize stuff into place
+    	std::istringstream ss(std::string(tempBuff, tempBuff + len), std::ios_base::binary);
 
-	// Notify any process awaiting for receiver queue to be clean
-	if (recv_cnt == 0)
-	{
-		//std::cout << m_options.mpiRank << ": receiver finished processing" << std::endl;
-		receiver_condition.notify_one();
-	}
-//std::cout << m_options.mpiRank << ": processer fase 5" << std::endl;
+    	//convert buffer to something useful, like thread id and node vector
+    	boost::archive::binary_iarchive ia{ ss };
+    	std::vector<Node<N>> temp;
+    	ia & temp;
+    	delete[] tempBuff;
+
+    	// Locking queue to add received stuff
+    	std::unique_lock<std::mutex> queue_lock(queue_mutex[tid]);
+        queue_nodes[tid].insert(queue_nodes[tid].end(), temp.begin(), temp.end());//temp.rbegin(), temp.rend());//temp.begin(), temp.end());
+    	queue_condition[tid].notify_one();
+    	queue_lock.unlock();
+
+    	//std::cout << m_options.mpiRank << ": processer fase 4" << std::endl;
+
+    	delete[] buffer;
+
+    	// Update counter of messages awaiting to be processed
+    	std::unique_lock<std::mutex> processing_lock(processing_mutex);
+    	recv_cnt--;
+        processing_lock.unlock();
+
+        //std::cout << m_options.mpiRank << ": reporting pending " << recv_cnt << " messages" << std::endl;
+    	// Notify any process awaiting for receiver queue to be clean
+    	if (recv_cnt == 0)
+    	{
+    		//std::cout << m_options.mpiRank << ": receiver finished processing" << std::endl;
+    		receiver_condition.notify_one();
+    	}
+    }
+
+    //We're finishing, so we need to clean up any non processed messages
+    for (unsigned int i = 0; i < processing_queue[tid].size(); i++)
+    {
+        delete[] processing_queue[tid][i];
+    }
+
 	return 0;
 }
 
@@ -1076,16 +1166,21 @@ int PAStar<N>::pa_star(const Node<N> &node_zero, const Coord<N> &coord_final, co
     std::vector<std::thread> threads;
     TimeCounter *t = new TimeCounter("Phase 2: PA-Star running time: ");
 
+    // Create processing threads
+    for (int i = 0; i < options.threads_num; i++)
+        pastar_instance.proc_threads.push_back(std::thread(&PAStar::process_message, &pastar_instance, i));
+
+    // Create receiver thread
+    threads.push_back(std::thread(&PAStar::receiver, &pastar_instance, &pastar_instance));
+
     // Create worker threads
     for (int i = 0; i < options.threads_num; ++i)
-	// Create worker threads
         threads.push_back(std::thread(&PAStar::worker, &pastar_instance, i, coord_final));
 
 	// Create sender thread
 	threads.push_back(std::thread(&PAStar::sender, &pastar_instance));
 
-	// Create receiver thread
-	threads.push_back(std::thread(&PAStar::receiver, &pastar_instance, &pastar_instance));
+
 
     // Wait for the end of all threads
     for (auto& th : threads)
