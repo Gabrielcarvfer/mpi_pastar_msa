@@ -3,7 +3,7 @@
 * \author Daniel Sundfeld
 * \copyright MIT License
 */
-#include "Coord.h"
+#include "include/Coord.h"
 
 #include <iostream>
 

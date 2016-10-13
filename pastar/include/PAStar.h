@@ -28,11 +28,9 @@
 #include "Node.h"
 #include "PriorityList.h"
 
- #include <stdint.h>
-#include <lz4.h>
-
 #include <sstream>
 // include input and output archivers
+
 #include <boost/archive/binary_oarchive.hpp>
 #include <boost/archive/binary_iarchive.hpp>
 
@@ -40,10 +38,9 @@
 #include <boost/serialization/vector.hpp>
 #include <boost/serialization/map.hpp>
 #include <boost/serialization/collection_size_type.hpp>
+#include <boost/serialization/list.hpp>
 
-typedef uint32_t u4;
 
-#define s_u4 (sizeof(u4))
 
 #ifndef THREADS_NUM
     #define THREADS_NUM std::thread::hardware_concurrency()
@@ -83,6 +80,7 @@ typedef uint32_t u4;
 #endif
 
 #endif
+
 /*!
  * \brief Arguments for PAStar class
  */
@@ -126,15 +124,17 @@ class PAStar {
         PriorityList<N> *OpenList;
         std::map< Coord<N>, Node<N> > *ClosedList;
 
+        //Accountability data
         long long int *nodes_count;
         long long int *nodes_reopen;
 
-
-        PriorityList<N> *OpenListFinal;
-        std::map< Coord<N>, Node<N> > *ClosedListFinal;
         long long int *nodes_countFinal;
         long long int *nodes_reopenFinal;
 
+        long long int * nodes_openListSizeFinal;
+        long long int * nodes_closedListSizeFinal;
+
+        //Control access variables
         std::mutex *queue_mutex;
         std::condition_variable *queue_condition;
         std::vector< Node<N> > *queue_nodes;
@@ -144,14 +144,13 @@ class PAStar {
 
 		//Structure that hold
 		std::vector< Node<N> > **send_queue; //In that way, we can have a vector of vectors of nodes
-		//std::queue < std::tuple< int, int, Node<N> > > send_queue;
 
 		//Structures for syncing final node and other data
         std::mutex final_node_mutex;
         Node<N> final_node;
         
         std::atomic<int> final_node_count;
-		long long int * nodes_openListSizeFinal;
+	
 		bool remoteLowerVal;
 
 		//Synchronization variables

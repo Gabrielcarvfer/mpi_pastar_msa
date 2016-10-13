@@ -31,7 +31,7 @@ PASTAR_BIN  = $(BIN_DIR)/pastar
 TARGET      = $(PASTAR_BIN)
 
 SRC_DIR     = ./pastar
-INC_DIR     = ./pastar
+INC_DIR     = ./pastar/include
 OBJ_DIR     = ./obj
 CPPFLAGS   += -W $(MPI_COMPILE_FLAGS) $(CPPSTD)
 LDFLAGS    += -pthread -lstdc++ -lm -lboost_program_options -lboost_system -lboost_filesystem \-lboost_serialization -llz4 $(MPI_LINK_FLAGS) $(CPPSTD)
@@ -84,6 +84,7 @@ COMMON_CPP_SRCS += \
     $(SRC_DIR)/PairAlign.cpp \
     $(SRC_DIR)/Sequences.cpp \
     $(SRC_DIR)/TimeCounter.cpp \
+    $(SRC_DIR)/lz4sup.cpp \
 
 PASTAR_SRCS = \
     $(SRC_DIR)/msa_pastar_main.cpp \

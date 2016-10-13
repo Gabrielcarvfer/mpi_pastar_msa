@@ -6,13 +6,14 @@
  */
 
 #include <iostream>
-#include "HeuristicHPair.h"
-#include "max_seq_helper.h"
-#include "mpi_dependencies.h"
-#include "msa_options.h"
-#include "PAStar.h"
-#include "Sequences.h"
-#include "read_fasta.h"
+#include "include/HeuristicHPair.h"
+#include "include/max_seq_helper.h"
+#include "include/mpi_dependencies.h"
+#include "include/msa_options.h"
+#include "include/PAStar.h"
+#include "include/Sequences.h"
+#include "include/read_fasta.h"
+#include "include/lz4sup.h"
 
 
 
@@ -122,23 +123,20 @@ int main(int argc, char *argv[])
            oa & seq;
         }
 
-        //Experimental lz4 compression
-        u4 len = (u4) (ss.str().length() + 1);
-        u4 lz4len = LZ4_compressBound((int)len);
-        u4 lz4len2 = 0;
-        char * lz4Data = new char[lz4len + (s_u4 * 3)]();
 
-        lz4len2 = LZ4_compress(ss.str().c_str(), &lz4Data[s_u4 * 3], (int) len);
-        ((u4*)lz4Data)[0] = lz4len2 + (s_u4 * 3);
-        ((u4*)lz4Data)[1] = lz4len;
-        ((u4*)lz4Data)[2] = len;
+        char ** lz4Data = NULL;
+        lz4Data = (char**)calloc(1, sizeof(char*));
 
+        int lz4Size = pastar_lz4_en( ss.str().c_str(), lz4Data, ss.str().length() );
+        //Sending message
+        
         //Sending message
         for (i = 1; i < opt.mpiCommSize; i++)
-            MPI_Send(lz4Data, (int) (lz4len2 + ( s_u4 * 3 ) ), MPI_CHAR, i, 0, MPI_COMM_WORLD);
+            MPI_Send(*lz4Data, lz4Size, MPI_CHAR, i, 0, MPI_COMM_WORLD);
 
         //Clearing buffer
-        delete[] lz4Data;
+        delete[] *lz4Data;
+        free(lz4Data);
     }
     else
     {
@@ -149,21 +147,19 @@ int main(int argc, char *argv[])
             MPI_Get_count(&status, MPI_CHAR, &n_bytes);
             sender = status.MPI_SOURCE;
 
-            char * buffer = new char[n_bytes]();
-            MPI_Recv(buffer, n_bytes, MPI_CHAR, sender, 0, MPI_COMM_WORLD, &status);
+            char ** buffer = NULL;
+            buffer = (char**)calloc(1, sizeof(char*));
+            *buffer = new char[n_bytes]();
 
-            //Experimental LZ4 decompression
-            u4 lz4len = ((u4*)buffer)[1];
-            u4 len    = ((u4*)buffer)[2];
-            char * tempBuff = new char[lz4len]();
-            LZ4_decompress_fast(&buffer[s_u4 * 3], tempBuff, len);
-            delete[] buffer;
+            MPI_Recv(*buffer, n_bytes, MPI_CHAR, sender, 0, MPI_COMM_WORLD, &status);
+
+            int len = pastar_lz4_dec(buffer);
 
             //Unserialize data into place
-            std::istringstream ss(std::string(tempBuff, tempBuff + len), std::ios_base::binary);
+            std::istringstream ss(std::string(*buffer, *buffer + len), std::ios_base::binary);
             
             //Free buffer
-            delete[] tempBuff;
+            delete[] *buffer;
             boost::archive::binary_iarchive ia{ ss };
 
             std::string seq;
@@ -177,6 +173,8 @@ int main(int argc, char *argv[])
                 //save sequence to local process
                 sequences->set_seq(seq);
             }   
+
+            free(buffer);
 
         
     }

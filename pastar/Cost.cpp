@@ -3,7 +3,7 @@
  * \author Daniel Sundfeld
  * \copyright MIT License
  */
-#include "Cost.h"
+#include "include/Cost.h"
 
 static Cost c;
 

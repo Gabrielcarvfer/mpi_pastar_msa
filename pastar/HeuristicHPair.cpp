@@ -3,14 +3,14 @@
  * \author Daniel Sundfeld
  * \copyright MIT License
  */
-#include "HeuristicHPair.h"
+#include "include/HeuristicHPair.h"
 
 #include <iostream>
 
-#include "Coord.h"
-#include "PairAlign.h"
-#include "Sequences.h"
-#include "TimeCounter.h"
+#include "include/Coord.h"
+#include "include/PairAlign.h"
+#include "include/Sequences.h"
+#include "include/TimeCounter.h"
 
 //! Singleton instance
 HeuristicHPair HeuristicHPair::instance;

@@ -2,8 +2,8 @@
  * \author Daniel Sundfeld
  * \copyright MIT License
  */
-#include "read_fasta.h"
-#include "Sequences.h"
+#include "include/read_fasta.h"
+#include "include/Sequences.h"
 
 int read_fasta_file_core(const std::string &name)
 {

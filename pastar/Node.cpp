@@ -3,15 +3,15 @@
  * \author Daniel Sundfeld
  * \copyright MIT License
  */
-#include "Node.h"
+#include "include/Node.h"
 
 #include <algorithm>
 #include <iostream>
 #include <vector>
 
-#include "Cost.h"
-#include "HeuristicHPair.h"
-#include "Sequences.h"
+#include "include/Cost.h"
+#include "include/HeuristicHPair.h"
+#include "include/Sequences.h"
 
 //! Build a node with zero on all atributes
 template < int N >
