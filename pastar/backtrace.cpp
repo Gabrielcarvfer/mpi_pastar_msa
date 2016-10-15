@@ -81,14 +81,15 @@ Node<N> partial_backtrace_alignment(std::list<char> *alignments, std::map<Coord<
     Node<N> current = currentE;
     int id = current.pos.get_id(list_size);
 
-
+    //std::cout << "001" << std::endl;
     //Backtrace until find an node from external thread
     do
     {
         //If current node is local, align
         //If its from remote node, jump to its father
-        if ((id >= min) && (id < max) )
-        {
+        //if ((id >= min) && (id < max) )
+        //{
+            //std::cout << "002" << std::endl;
             //std::cout << current.pos.get_id(list_size) << ":" << current << std::endl;
             for (int i = 0; i < N; i++)
             {
@@ -99,16 +100,21 @@ Node<N> partial_backtrace_alignment(std::list<char> *alignments, std::map<Coord<
                     c = '-';
                 alignments[i].push_front(c);
             }
-        }
+        //}
+       
         id = current.get_parent().get_id(list_size);
+        //std::cout << "003 id " << id << " min " << min << " max "<< max <<  std::endl;
         // if next node is remote, stop and return the node
-        if ( (id < min) | (id > max) )
+        if ( (id < min) | (id >= max) )
         {
+            //std::cout << "004" << std::endl;
             break;
         }
+
+        //std::cout << "005" << std::endl;
         current = ClosedList[id-min][current.get_parent()];
     } while (current.pos != Sequences::get_initial_coord<N>());
-
+    //std::cout << "006" << std::endl;
     return current;
 }
 

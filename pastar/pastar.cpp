@@ -343,10 +343,6 @@ void PAStar<N>::worker_inner(int tid, const Coord<N> &coord_final)
 	std::vector< Node<N> > *neigh = new std::vector< Node<N> >[m_options.totalThreads];
     int actualTid = tid + m_options.mpiMin;
 
-    std::default_random_engine generator;
-    //std::uniform_int_distribution<int> distribution(0,10);
-    //auto dice = std::bind ( distribution, generator );
-
     // Loop ended by process_final_node
     while (end_condLocal == false)
     {
@@ -861,6 +857,7 @@ int PAStar<N>::receiver(PAStar<N> * pastar_inst)
 		if (!flag)
         {
             std::this_thread::sleep_for(std::chrono::milliseconds(prob = prob << 1));
+            std::this_thread::yield();
 			continue;
         }
         //Reset clock skew
@@ -943,7 +940,7 @@ int PAStar<N>::process_message(int tid)
 {
 
 #ifndef WIN32
-    set_affinity(tid);
+    //set_affinity(tid);
 #endif
 
     char ** buffer = NULL;
@@ -1157,10 +1154,13 @@ void PAStar<N>::sync_pastar_data()
     //Distributed backtrace
     std::list<char> finalAlignments[N];
 
+    TimeCounter *t = NULL;
+
     if (m_options.mpiRank == 0)
     {
-        TimeCounter t("Phase 3 - backtrace: ");
+        t = new TimeCounter("Phase 3 - backtrace: ");
     }
+    
 
     Sequences *seq = Sequences::getInstance();
 
@@ -1188,11 +1188,11 @@ void PAStar<N>::sync_pastar_data()
                 {
 
                     std::list<char> alignments[N];
-                    //std::cout << m_options.mpiRank << ":0.1 node <- " << current << std::endl;
+                    //std::cout << m_options.mpiRank << ":0.1" << std::endl;// node <- " << current << std::endl;
                     Node<N> node;
                     //Execute partial alignment
                     node = partial_backtrace_alignment<N>(alignments, ClosedList, current, m_options.totalThreads, m_options.mpiMin, m_options.mpiMax);
-                    //std::cout << m_options.mpiRank << ":0.2  node <- " << node << " parent id " << node.get_parent().get_id(m_options.totalThreads) << std::endl;
+                    //std::cout << m_options.mpiRank << ":0.2" << std::endl;//  node <- " << node << " parent id " << node.get_parent().get_id(m_options.totalThreads) << std::endl;
                     
                     //Transmit partial alignment
                     if (m_options.mpiRank != 0)
@@ -1256,7 +1256,34 @@ void PAStar<N>::sync_pastar_data()
                     int sender_tag = 0;
 
                     //Listen to messages
-                    MPI_Probe(MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+                    int flag = 0;
+                    int tag = 0;
+
+                    
+                    //Check if there is a partial alignment message awaiting
+                    MPI_Iprobe(MPI_ANY_SOURCE, 31, MPI_COMM_WORLD, &flag, &status);
+
+                    if (!flag)
+                    {
+                        //If didnt received partial alignment, check for next_node
+                        MPI_Iprobe(MPI_ANY_SOURCE, 30, MPI_COMM_WORLD, &flag, &status);
+
+                        if (!flag)
+                        {
+                            //If didnt received next_node, check for final node
+                            MPI_Iprobe(MPI_ANY_SOURCE, 32, MPI_COMM_WORLD, &flag, &status);
+
+                            if (!flag)
+                            {
+                                //if didn't received anything, loop
+
+                                std::this_thread::sleep_for(std::chrono::milliseconds(40));
+                                break;
+                            }
+                        }
+                    }
+                    
+
                     //std::cout << m_options.mpiRank << ":4.2 " << std::endl;// << sender_tag << " msg <- " << temp << std::endl;
 
                     //Iprobe messages tagged with append, that should be processed earlier than aligning
@@ -1346,6 +1373,7 @@ void PAStar<N>::sync_pastar_data()
     //After backtrace, rank 0 prints alignment stuff
     if (m_options.mpiRank == 0)
     {
+        delete t;
         print_entire_backtrace<N>(finalAlignments);
     }
 }

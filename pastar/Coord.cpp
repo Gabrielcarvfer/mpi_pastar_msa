@@ -57,11 +57,16 @@ bool Coord<N>::operator==(const Coord<N> &rhs) const
 template < int N >
 bool Coord<N>::operator<(const Coord<N> &rhs) const
 {
+	int j;
 	for (int i = 0; i < N; ++i)
 	{
-		if (m_coord[i] > rhs.m_coord[i])
+		j = m_coord[i] - rhs.m_coord[i];
+
+		//if (m_coord[i] > rhs.m_coord[i])
+		if (j > 0) 
 			return false;
-		if (m_coord[i] < rhs.m_coord[i])
+		//if (m_coord[i] < rhs.m_coord[i])
+		if (j < 0)
 			return true;
 	}
 	return false;
