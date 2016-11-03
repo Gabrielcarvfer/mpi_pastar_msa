@@ -167,8 +167,8 @@ int Node<N>::getNeigh(std::vector<Node> a[], int vec_size, int * pairwise_costs)
        third field, sequence2.
        Example, if sequence 0 and 2 matches, one of the vector fields
        contains first MATCH score, second 0, third 2. */
-
-    int k = 0;
+    unsigned int size = 0;
+    unsigned int k = 0;
     for (int i = 0; i < N - 1; i++)
     {
         for (int j = i + 1; j < N; j++)
@@ -177,19 +177,23 @@ int Node<N>::getNeigh(std::vector<Node> a[], int vec_size, int * pairwise_costs)
             pairwise_costs[k] = cost;
 			pairwise_costs[k+1] = i;
 			pairwise_costs[k+2] = j;
-            k=k+3;
+            k+=3;
+            size++;
         }
     }
-
     int n = bitSeq(N) - 1;
     for (i = 1; i <= n; i++)
     {
         c = pos.neigh(i);
         if (borderCheck(c))
         { 
+            k = 0;
             int costs = 0; // match, mismatch and gap sum-of-pairs cost
-            for (unsigned int k = 0; k < ((N-1)*2*3); k=k+3)
-                costs += pairCost(i,pairwise_costs[k], pairwise_costs[k+1], pairwise_costs[k+2]);       
+            for (unsigned int j = 0; j < size; j++)
+            {
+                costs += pairCost(i,pairwise_costs[k], pairwise_costs[k+1], pairwise_costs[k+2]);
+                k += 3;       
+            }
             a[c.get_id(vec_size)].push_back(Node(m_g + costs, c, i));
         }
     }
@@ -208,7 +212,7 @@ int Node<N>::getNeigh(std::vector<Node> a[], int vec_size)
        third field, sequence2.
        Example, if sequence 0 and 2 matches, one of the vector fields
        contains first MATCH score, second 0, third 2. */
-    unsigned int size = (N-1)*2;
+    //unsigned int size = (N-1)*2;
     std::vector<std::vector<int>> pairwise_costs;
 
     int k = 0;
@@ -222,7 +226,7 @@ int Node<N>::getNeigh(std::vector<Node> a[], int vec_size)
             k++;
         }
     }
-
+    unsigned int pairwise_costs_size = pairwise_costs.size();
     int n = bitSeq(N) - 1;
     for (i = 1; i <= n; i++)
     {
@@ -230,8 +234,10 @@ int Node<N>::getNeigh(std::vector<Node> a[], int vec_size)
         if (borderCheck(c))
         { 
             int costs = 0; // match, mismatch and gap sum-of-pairs cost
-            for (unsigned int k = 0; k < pairwise_costs.size(); k++)
+            for (unsigned int k = 0; k < pairwise_costs_size; k++)
+            {
                 costs += pairCost(i, pairwise_costs[k][0], pairwise_costs[k][1], pairwise_costs[k][2]);           
+            }
             a[c.get_id(vec_size)].push_back(Node(m_g + costs, c, i));
         }
     }

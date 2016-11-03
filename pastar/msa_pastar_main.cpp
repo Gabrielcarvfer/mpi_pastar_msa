@@ -6,9 +6,9 @@
  */
 
 #include <iostream>
+#include <mpi.h>
 #include "include/HeuristicHPair.h"
 #include "include/max_seq_helper.h"
-#include "include/mpi_dependencies.h"
 #include "include/msa_options.h"
 #include "include/PAStar.h"
 #include "include/Sequences.h"

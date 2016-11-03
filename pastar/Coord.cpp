@@ -11,7 +11,7 @@
 template < int N >
 Coord<N>::Coord(const int init)
 {
-	for (int i = 0; i < N; ++i)
+	for (int i = 0; i < N; i++)
 		m_coord[i] = init;
 }
 
@@ -20,7 +20,7 @@ Coord<N>& Coord<N>::operator=(const Coord<N> &rhs)
 {
 	if (this == &rhs) // identify self-assignment
 		return *this; // do nothing
-	for (int i = 0; i < N; ++i)
+	for (int i = 0; i < N; i++)
 		m_coord[i] = rhs.m_coord[i];
 	return *this;
 }
@@ -33,7 +33,7 @@ std::ostream& operator<<(std::ostream &lhs, const Coord<N> &rhs)
 		return lhs;
 
 	lhs << "(" << rhs.m_coord[0];
-	for (int i = 1; i < N; ++i)
+	for (int i = 1; i < N; i++)
 		lhs << " " << rhs.m_coord[i];
 	lhs << ")";
 	return lhs;
@@ -42,7 +42,7 @@ std::ostream& operator<<(std::ostream &lhs, const Coord<N> &rhs)
 template < int N >
 bool Coord<N>::operator!=(const Coord<N> &rhs) const
 {
-	for (int i = 0; i < N; ++i)
+	for (int i = 0; i < N; i++)
 		if (m_coord[i] != rhs.m_coord[i])
 			return true;
 	return false;
@@ -57,19 +57,17 @@ bool Coord<N>::operator==(const Coord<N> &rhs) const
 template < int N >
 bool Coord<N>::operator<(const Coord<N> &rhs) const
 {
-	int j;
-	for (int i = 0; i < N; ++i)
-	{
-		j = m_coord[i] - rhs.m_coord[i];
-
-		//if (m_coord[i] > rhs.m_coord[i])
-		if (j > 0) 
-			return false;
-		//if (m_coord[i] < rhs.m_coord[i])
-		if (j < 0)
-			return true;
-	}
-	return false;
+	int j[N];
+	for (int i = 0; i < N; i++)
+    {        
+    	j[i] = m_coord[i] - rhs.m_coord[i];
+    	
+    	if (j[i] < 0)
+    		return true;
+    	if (j[i] > 0)
+    		return false;
+    }
+    return false;
 }
 
 //! Return the value on the \a n - dimension
