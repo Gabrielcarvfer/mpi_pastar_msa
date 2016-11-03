@@ -1,5 +1,5 @@
 /*!
- * \author Daniel Sundfeld
+ * \authors {Daniel Sundfeld, Gabriel Ferreira}
  * \copyright MIT License
  */
 
