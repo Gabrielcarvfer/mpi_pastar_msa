@@ -9,8 +9,8 @@
 #include <stdexcept>
 #include <limits>
 
-#include "CoordHash.h"
-#include "Coord.h"
+#include "include/CoordHash.h"
+#include "include/Coord.h"
 
 using namespace std;
 

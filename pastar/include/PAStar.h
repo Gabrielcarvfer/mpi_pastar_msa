@@ -22,14 +22,25 @@
 #include <vector>
 #include <tuple>
 #include <queue>
-#include <shared_mutex>
-
-
 #include "AStar.h"
 #include "Coord.h"
 #include "CoordHash.h"
 #include "Node.h"
 #include "PriorityList.h"
+
+#include <sstream>
+// include input and output archivers
+
+#include <boost/archive/binary_oarchive.hpp>
+#include <boost/archive/binary_iarchive.hpp>
+
+// include this header to serialize vectors, maps and other types
+#include <boost/serialization/vector.hpp>
+#include <boost/serialization/map.hpp>
+#include <boost/serialization/collection_size_type.hpp>
+#include <boost/serialization/list.hpp>
+
+
 
 #ifndef THREADS_NUM
     #define THREADS_NUM std::thread::hardware_concurrency()
@@ -69,6 +80,7 @@
 #endif
 
 #endif
+
 /*!
  * \brief Arguments for PAStar class
  */
@@ -104,45 +116,70 @@ class PAStar {
     public:
         static int pa_star(const Node<N> &node_zero, const Coord<N> &coord_final, const PAStarOpt &options);
 
+        std::vector<std::thread> proc_threads;
+
     private:
         // Members
         const PAStarOpt m_options;
         PriorityList<N> *OpenList;
         std::map< Coord<N>, Node<N> > *ClosedList;
 
+        //Accountability data
         long long int *nodes_count;
         long long int *nodes_reopen;
 
-
-        PriorityList<N> *OpenListFinal;
-        std::map< Coord<N>, Node<N> > *ClosedListFinal;
         long long int *nodes_countFinal;
         long long int *nodes_reopenFinal;
 
+        long long int * nodes_openListSizeFinal;
+        long long int * nodes_closedListSizeFinal;
+
+        //Control access variables
         std::mutex *queue_mutex;
         std::condition_variable *queue_condition;
         std::vector< Node<N> > *queue_nodes;
         std::atomic<bool> end_cond;
 		std::atomic<bool> end_condLocal;
 		std::mutex * check_stop_mutex;
-		std::queue < std::tuple< int, int, Node<N> > > send_queue;
 
+		//Structure that hold
+		std::vector< Node<N> > **send_queue; //In that way, we can have a vector of vectors of nodes
+
+		//Structures for syncing final node and other data
         std::mutex final_node_mutex;
         Node<N> final_node;
-		Node<N> best_received;
-		std::mutex best_received_mutex;
+        
         std::atomic<int> final_node_count;
-		long long int * nodes_openListSizeFinal;
-		long long int * nodes_closedListSizeFinal;
+	
+		bool remoteLowerVal;
 
+		//Synchronization variables
         std::mutex sync_mutex;
         std::atomic<int> sync_count;
         std::condition_variable sync_condition;
 
+		//Sender mutex and condition variables
 		std::condition_variable sender_condition;
 		std::mutex sender_mutex;
-		std::condition_variable receiver_condition;
-		std::mutex receiver_mutex;
+		std::mutex squeues_mutex;
+		std::mutex *squeue_mutex;
+		bool sender_empty;
+		int * threadLookupTable;
+
+        //Receiver mutex and condition variables
+        std::condition_variable receiver_condition;
+        std::mutex receiver_mutex;
+        std::condition_variable *processing_condition;
+        std::vector<char*> * processing_queue;
+        std::mutex * processing_mutexes;
+        bool recv_goodbye = false;
+        long long int recv_cnt = 0;
+
+		//Node pairwise costs variables
+#ifdef WIN32
+		int ** pairwise_costs;
+#endif
+
 
         // Constructor
         PAStar(const Node<N> &node_zero, const PAStarOpt &opt);
@@ -174,14 +211,13 @@ class PAStar {
         // Receiver Function
         int receiver(PAStar<N> * pastar_inst);
 		int sender(void);
-		int process_message(int sender_tag, char *buffer);
-		long long int send = 0, recv = 0;
+		int process_message(int tid);
 		std::mutex processing_mutex;
 		std::mutex sync_mutex_global;
 		std::condition_variable sync_condition_global;
 		void flush_sender();
 		void flush_receiver();
-		long long int recv_cnt = 0;
+		bool end_of_transmission;
 
         // Backtrack
         void sync_pastar_data(void);

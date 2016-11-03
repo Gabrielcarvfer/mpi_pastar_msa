@@ -3,16 +3,15 @@
  * \author Daniel Sundfeld
  * \copyright MIT License
  */
-#include "Node.h"
+#include "include/Node.h"
 
 #include <algorithm>
 #include <iostream>
-#include <tuple>
 #include <vector>
 
-#include "Cost.h"
-#include "HeuristicHPair.h"
-#include "Sequences.h"
+#include "include/Cost.h"
+#include "include/HeuristicHPair.h"
+#include "include/Sequences.h"
 
 //! Build a node with zero on all atributes
 template < int N >
@@ -83,16 +82,17 @@ inline int bitSeq(const int &i)
     return 1 << i;
 }
 
+
 //! Bit check if the number \a i has sequences \a s1 and \a s2
 inline bool bitSeqCheck(const int &i, const int &s1, const int &s2)
 {
-	return ((i & bitSeq(s1)) && (i & bitSeq(s2)) == 1 ? true : false);
+    return (i & bitSeq(s1)) && (i & bitSeq(s2));
 }
 
 //! Bit check if the number \a i has sequence \a s1
 inline bool bitSeqCheck(const int &i, const int &s1)
 {
-    return ((i & bitSeq(s1)) == 1 ? true : false);
+    return (i & bitSeq(s1));
 }
 
 /*!
@@ -154,6 +154,49 @@ inline int Node<N>::pairCost(const int &neigh_num, const int &mm_cost, const int
  * Add all neighboors to a vector \a a. If it is not a board node,
  * 2pow(n-1) nodes are added.
  */
+#ifdef WIN32
+ //Optimized for Windows
+template < int N >
+int Node<N>::getNeigh(std::vector<Node> a[], int vec_size, int * pairwise_costs)
+{
+    int i;
+    Sequences *seq = Sequences::getInstance();
+    Coord<N> c;
+
+    /* Vector of tuple. First field cost, Second field, sequence1.
+       third field, sequence2.
+       Example, if sequence 0 and 2 matches, one of the vector fields
+       contains first MATCH score, second 0, third 2. */
+
+    int k = 0;
+    for (int i = 0; i < N - 1; i++)
+    {
+        for (int j = i + 1; j < N; j++)
+        {
+            int cost = Cost::cost(seq->get_seq(i)[pos[i]], seq->get_seq(j)[pos[j]]);
+            pairwise_costs[k] = cost;
+			pairwise_costs[k+1] = i;
+			pairwise_costs[k+2] = j;
+            k=k+3;
+        }
+    }
+
+    int n = bitSeq(N) - 1;
+    for (i = 1; i <= n; i++)
+    {
+        c = pos.neigh(i);
+        if (borderCheck(c))
+        { 
+            int costs = 0; // match, mismatch and gap sum-of-pairs cost
+            for (unsigned int k = 0; k < ((N-1)*2*3); k=k+3)
+                costs += pairCost(i,pairwise_costs[k], pairwise_costs[k+1], pairwise_costs[k+2]);       
+            a[c.get_id(vec_size)].push_back(Node(m_g + costs, c, i));
+        }
+    }
+    return 0;
+}
+#else
+//Optimized for Linux
 template < int N >
 int Node<N>::getNeigh(std::vector<Node> a[], int vec_size)
 {
@@ -165,15 +208,18 @@ int Node<N>::getNeigh(std::vector<Node> a[], int vec_size)
        third field, sequence2.
        Example, if sequence 0 and 2 matches, one of the vector fields
        contains first MATCH score, second 0, third 2. */
-    std::vector< std::tuple<int, int, int> > pairwise_costs;
+    unsigned int size = (N-1)*2;
+    std::vector<std::vector<int>> pairwise_costs;
 
+    int k = 0;
     for (int i = 0; i < N - 1; i++)
     {
         for (int j = i + 1; j < N; j++)
         {
             int cost = Cost::cost(seq->get_seq(i)[pos[i]], seq->get_seq(j)[pos[j]]);
-            std::tuple<int, int, int> total_cost(cost, i, j);
-            pairwise_costs.push_back(total_cost);
+            std::vector<int> tuple = {cost, i, j};
+            pairwise_costs.push_back(tuple);
+            k++;
         }
     }
 
@@ -182,17 +228,17 @@ int Node<N>::getNeigh(std::vector<Node> a[], int vec_size)
     {
         c = pos.neigh(i);
         if (borderCheck(c))
-        {
+        { 
             int costs = 0; // match, mismatch and gap sum-of-pairs cost
-
-            for (auto it = pairwise_costs.begin() ; it != pairwise_costs.end(); ++it)
-                costs += pairCost(i, std::get<0>(*it), std::get<1>(*it), std::get<2>(*it));
+            for (unsigned int k = 0; k < pairwise_costs.size(); k++)
+                costs += pairCost(i, pairwise_costs[k][0], pairwise_costs[k][1], pairwise_costs[k][2]);           
             a[c.get_id(vec_size)].push_back(Node(m_g + costs, c, i));
         }
     }
     return 0;
 }
 
+#endif
 // This file have a friend function that also need to be templated to max seq
 #define DECLARE_NODE_FRIEND( X ) \
 template std::ostream& operator<< < X >(std::ostream&, Node< X > const&); \

@@ -27,6 +27,7 @@
 #define MPI_TAG_ACC_REQ           0x00FFFFFE
 #define MPI_TAG_KILL_RECEIVER     0x00FFFFFF
 
+enum sync_state {working=0, listening};
 
 #ifndef WIN32
 
@@ -71,6 +72,9 @@ PAStar<N>::PAStar(const Node<N> &node_zero, const struct PAStarOpt &opt)
     final_node.set_max();
     recv_cnt = 0;
 
+
+    OpenListFinal = NULL;
+    ClosedListFinal = NULL;
     nodes_countFinal = NULL;
     nodes_reopenFinal = NULL;
 
@@ -131,10 +135,9 @@ PAStar<N>::PAStar(const Node<N> &node_zero, const struct PAStarOpt &opt)
     // Allocate final structures and enqueue first node if rank zero
     if (m_options.mpiRank == 0)
     {
-        //ClosedListFinal = new std::map< Coord<N>, Node<N> >[m_options.totalThreads];
+        ClosedListFinal = new std::map< Coord<N>, Node<N> >[m_options.totalThreads];
         nodes_countFinal = new long long int[m_options.totalThreads]();
         nodes_reopenFinal = new long long int[m_options.totalThreads]();
-        nodes_closedListSizeFinal = new long long int [m_options.totalThreads]();
 		nodes_openListSizeFinal = new long long int[m_options.totalThreads]();
 
         OpenList[0].enqueue(node_zero);
@@ -172,12 +175,9 @@ PAStar<N>::~PAStar()
     delete[] pairwise_costs;
     #endif
 
-
-    delete[] ClosedList;
     if (m_options.mpiRank == 0)
     {
-		
-        delete[] nodes_closedListSizeFinal;
+		delete[] ClosedListFinal;
 		delete[] nodes_openListSizeFinal;
 		delete[] nodes_countFinal;
 		delete[] nodes_reopenFinal;
@@ -342,6 +342,10 @@ void PAStar<N>::worker_inner(int tid, const Coord<N> &coord_final)
 
 	std::vector< Node<N> > *neigh = new std::vector< Node<N> >[m_options.totalThreads];
     int actualTid = tid + m_options.mpiMin;
+
+    std::default_random_engine generator;
+    //std::uniform_int_distribution<int> distribution(0,10);
+    //auto dice = std::bind ( distribution, generator );
 
     // Loop ended by process_final_node
     while (end_condLocal == false)
@@ -857,7 +861,6 @@ int PAStar<N>::receiver(PAStar<N> * pastar_inst)
 		if (!flag)
         {
             std::this_thread::sleep_for(std::chrono::milliseconds(prob = prob << 1));
-            std::this_thread::yield();
 			continue;
         }
         //Reset clock skew
@@ -940,7 +943,7 @@ int PAStar<N>::process_message(int tid)
 {
 
 #ifndef WIN32
-    //set_affinity(tid);
+    set_affinity(tid);
 #endif
 
     char ** buffer = NULL;
@@ -1023,11 +1026,11 @@ void PAStar<N>::print_nodes_count()
     {
 		std::cout << "tid " << i
 			 << "\tOpenList:" << nodes_openListSizeFinal[i]
-             << "\tClosedList:" << nodes_closedListSizeFinal[i]
+             << "\tClosedList:" << ClosedListFinal[i].size()
              << "\tReopen:" << nodes_reopenFinal[i]
              << "\tTotal: " << nodes_countFinal[i] << std::endl;
         open_list_total += nodes_openListSizeFinal[i];
-        closed_list_total += nodes_closedListSizeFinal[i];
+        closed_list_total += ClosedListFinal[i].size();
         nodes_reopen_total += nodes_reopenFinal[i];
         nodes_total += nodes_countFinal[i];
     }
@@ -1042,7 +1045,7 @@ void PAStar<N>::print_nodes_count()
 template < int N >
 void PAStar<N>::print_answer()
 {
-    //backtrace<N>(ClosedListFinal, m_options.totalThreads);
+    backtrace<N>(ClosedListFinal, m_options.totalThreads);
     print_nodes_count();
 
 }
@@ -1067,8 +1070,7 @@ void PAStar<N>::sync_pastar_data()
 		//Serialize stuff to be sent
 		for (i = 0; i < m_options.threads_num; i++)
 		{
-            temp = ClosedList[i].size();
-            oa & temp;
+			oa & ClosedList[i];
 			oa & nodes_count[i];
 			oa & nodes_reopen[i];
 			//Workaround for linux
@@ -1078,6 +1080,7 @@ void PAStar<N>::sync_pastar_data()
 
 		//Freeing memory as soon as possible
 		delete[] OpenList;
+		delete[] ClosedList;
 
 
         char ** lz4Data = NULL;
@@ -1102,14 +1105,14 @@ void PAStar<N>::sync_pastar_data()
 		{
 			nodes_countFinal[i] = nodes_count[i];
 			nodes_reopenFinal[i] = nodes_reopen[i];
-            nodes_closedListSizeFinal[i] = ClosedList[i].size();
+			ClosedListFinal[i] = ClosedList[i];
 			nodes_openListSizeFinal[i] = OpenList[i].size();
 		}
 
 
 		//Freeing memory as soon as possible
 		delete[] OpenList;
-		//delete[] ClosedList;
+		delete[] ClosedList;
 
         char ** buffer = NULL;
         buffer = (char**)calloc(1,sizeof(char*));
@@ -1140,7 +1143,7 @@ void PAStar<N>::sync_pastar_data()
 			//Recover stuff in same order as saved
 			for (j = 0; j < m_options.threads_num; j++)
 			{
-				ia & nodes_closedListSizeFinal[offset + j];
+				ia & ClosedListFinal[offset + j];
 				ia & nodes_countFinal[offset + j];
 				ia & nodes_reopenFinal[offset + j];
 				ia & nodes_openListSizeFinal[offset + j];
@@ -1152,229 +1155,143 @@ void PAStar<N>::sync_pastar_data()
     MPI_Barrier(MPI_COMM_WORLD);
 
     //Distributed backtrace
+    std::list<char> alignments[N];
     std::list<char> finalAlignments[N];
-
-    TimeCounter *t = NULL;
 
     if (m_options.mpiRank == 0)
     {
-        t = new TimeCounter("Phase 3 - backtrace: ");
+        TimeCounter t("exp:Phase 3 - backtrace: ");
     }
-    
 
     Sequences *seq = Sequences::getInstance();
 
     int id = seq->get_final_coord<N>().get_id(m_options.totalThreads);
-
     Node<N> current;
-
-    int state = 1;
-
-    //Whoever is the owner of last node start backtracing
     if ( (id >= m_options.mpiMin) && (id < m_options.mpiMax) )
-    {
         current = ClosedList[id - m_options.mpiMin][seq->get_final_coord<N>()];
-        state = 0;
-    }
 
+
+
+    enum sync_state state;
 
     bool finished = false;
 
-    do
+    while(!finished)
     {
         switch(state)
         {
-            case 0:
+            case (working):
                 {
-
-                    std::list<char> alignments[N];
-                    //std::cout << m_options.mpiRank << ":0.1" << std::endl;// node <- " << current << std::endl;
-                    Node<N> node;
                     //Execute partial alignment
-                    node = partial_backtrace_alignment<N>(alignments, ClosedList, current, m_options.totalThreads, m_options.mpiMin, m_options.mpiMax);
-                    //std::cout << m_options.mpiRank << ":0.2" << std::endl;//  node <- " << node << " parent id " << node.get_parent().get_id(m_options.totalThreads) << std::endl;
-                    
+                    partial_backtrace_alignment<N>(alignments, ClosedList, current, m_options.totalThreads, m_options.mpiMin, m_options.mpiMax);
+
                     //Transmit partial alignment
-                    if (m_options.mpiRank != 0)
                     {
-                        //std::cout << m_options.mpiRank << ":0.3" << std::endl;
                         std::ostringstream ss (std::ios_base::binary);
                         boost::archive::binary_oarchive oa{ ss };
 
-                        for (i = 0; i < N; i++)
-                            oa & alignments[i];
-                        MPI_Send(ss.str().c_str(), ss.str().length(), MPI_CHAR, 0, 31, MPI_COMM_WORLD);
-                    }
-                    //Or save to final aligment space
-                    else
-                    {
-                        //std::cout << m_options.mpiRank << ":0.4" << std::endl;
-                        for (i = 0; i < N; i++)
-                            finalAlignments[i].splice(finalAlignments[i].begin(), alignments[i]);
-                    }
-                    
+                        oa & alignments;
 
-                    //std::cout << m_options.mpiRank << ": msg -> " << ss.str() << std::endl;
-                    //std::cout << m_options.mpiRank << ":0.5" << std::endl;
+                        MPI_Send(ss.str().c_str(), ss.str().length()+1, MPI_CHAR, 0, 1, MPI_COMM_WORLD);
+                    }
 
                     //Check if backtrace has finished
                     if (node.pos == Sequences::get_initial_coord<N>())
                     {
-                        //std::cout << m_options.mpiRank << ":1" << std::endl;
                         //Send finishing message
                         for (i = 0; i < m_options.mpiCommSize; i++)
                             if (i != m_options.mpiRank)
-                                MPI_Send(NULL, 0, MPI_CHAR, i, 32, MPI_COMM_WORLD);
+                                MPI_Send(NULL, 0, MPI_CHAR, i, 2, MPI_COMM_WORLD);
                         finished = true;
                     }
                     else
                     {
-                        //std::cout << m_options.mpiRank << ":2" << std::endl;
                         //Serialize current node
                         std::ostringstream ss (std::ios_base::binary);
                         boost::archive::binary_oarchive oa{ ss };
 
                         oa & node;
 
-                        //std::cout << m_options.mpiRank << ":2.1 target_rank " <<  threadLookupTable[node.get_parent().get_id(m_options.totalThreads)] << std::endl;
                         //Transmit data
-                        MPI_Send(ss.str().c_str(), ss.str().length(), MPI_CHAR, threadLookupTable[node.get_parent().get_id(m_options.totalThreads)], 30, MPI_COMM_WORLD);
-                        //std::cout << m_options.mpiRank << ":3 msg node " << node.get_parent() << std::endl;
-
-                        state = 1;
-
-                        //std::cout << m_options.mpiRank << ":3.1 state == " << state << std::endl;
+                        MPI_Send(ss.str().c_str(), ss.str().length()+1, MPI_CHAR, threadLookupTable[node.pos.get_id(m_options.totalThreads)], 0, MPI_COMM_WORLD);
                     }
                 }
                 break;
-            case 1:
+            case (listening):
                 {
-                    //std::cout << m_options.mpiRank << ":4.1" << std::endl;
                     MPI_Status status;
                     int n_bytes = 0;
                     int sender = 0;
                     int sender_tag = 0;
 
                     //Listen to messages
-                    int flag = 0;
-                    int tag = 0;
-
-                    
-                    //Check if there is a partial alignment message awaiting
-                    MPI_Iprobe(MPI_ANY_SOURCE, 31, MPI_COMM_WORLD, &flag, &status);
-
-                    if (!flag)
-                    {
-                        //If didnt received partial alignment, check for next_node
-                        MPI_Iprobe(MPI_ANY_SOURCE, 30, MPI_COMM_WORLD, &flag, &status);
-
-                        if (!flag)
-                        {
-                            //If didnt received next_node, check for final node
-                            MPI_Iprobe(MPI_ANY_SOURCE, 32, MPI_COMM_WORLD, &flag, &status);
-
-                            if (!flag)
-                            {
-                                //if didn't received anything, loop
-
-                                std::this_thread::sleep_for(std::chrono::milliseconds(40));
-                                break;
-                            }
-                        }
-                    }
-                    
-
-                    //std::cout << m_options.mpiRank << ":4.2 " << std::endl;// << sender_tag << " msg <- " << temp << std::endl;
-
-                    //Iprobe messages tagged with append, that should be processed earlier than aligning
+                    MPI_Probe(MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
 
                     MPI_Get_count(&status, MPI_CHAR, &n_bytes);
                     sender = status.MPI_SOURCE;
                     sender_tag = status.MPI_TAG;
 
-                    char * buffer = (char*)calloc(sizeof(char),n_bytes);
-                    //std::cout << m_options.mpiRank << ":4.3 " << std::endl;// << sender_tag << " msg <- " << temp << std::endl;
+                    char * buffer = new char[n_bytes]();
 
                     MPI_Recv(buffer, n_bytes, MPI_CHAR, sender, sender_tag, MPI_COMM_WORLD, &status);
 
-                    std::string temp = std::string(buffer, buffer + n_bytes);
-
-                    free(buffer);
-                    //std::cout << m_options.mpiRank << ":4.4 "  << sender_tag << std::endl; //<< std::endl;//
-                    
                     //Switch for message tag
                     switch(sender_tag)
                     {
                         //If received a next_node, find its previous node and then resume partial backtrace
-                        case 30:
-                            //std::cout << m_options.mpiRank << ":5" << std::endl;
+                        case (0):
                             {
-                                std::istringstream ss(temp, std::ios_base::binary);
-                                //std::cout << m_options.mpiRank << ":5.1" << std::endl;
+                                std::istringstream ss(std::string(*buffer, *buffer + n_bytes), std::ios_base::binary);
+
                                 //convert buffer to something useful, like thread id and node vector
                                 boost::archive::binary_iarchive ia{ ss };
-                                //std::cout << m_options.mpiRank << ":5.2" << std::endl;
                                 ia & current;
 
-
-                                //std::cout << m_options.mpiRank << ":5.3" << std::endl;
-                                int index = threadLookupTable[current.get_parent().get_id(m_options.totalThreads)+m_options.totalThreads];
-                                current = ClosedList[index][current.get_parent()];
                                 //Set state to working
-                                state = 0;
-                                //std::cout << m_options.mpiRank << ":5.4" << std::endl;
+                                state = working;
                             }
                             break;
                         //Append partial alignment and then continue listening
-                        case 31:
-                            //std::cout << m_options.mpiRank << ":6 msg_size " << n_bytes << std::endl;
+                        case (1):
                             {
 
                                 std::list<char> partial_alignments[N];
-                                std::istringstream ss(temp, std::ios_base::binary);
+                                std::istringstream ss(std::string(*buffer, *buffer + n_bytes), std::ios_base::binary);
 
-                                //std::cout << m_options.mpiRank << ":7 "<< std::endl;    
                                 //convert buffer to something useful, like thread id and node vector
                                 boost::archive::binary_iarchive ia{ ss };
-                                
+                                ia & partial_alignments;
 
-                                //std::cout << m_options.mpiRank << ":8" << std::endl;
                                 for (i = 0; i < N; i++)
                                 {
-                                    ia & partial_alignments[i];
-                                    finalAlignments[i].splice(finalAlignments[i].begin(), partial_alignments[i]);
-                                    
+                                    partial_alignments[i].insert(partial_alignments[i].end(), finalAlignments[i].begin(), finalAlignments[i].end());
+                                    finalAlignments[i] = partial_alignments[i];
                                 }
 
-                                //std::cout << m_options.mpiRank << ":9" << std::endl;
+
 
                             }
                             break;
-                        case 32:
-                            //std::cout << m_options.mpiRank << ":10" << std::endl;
+                        case (2):
                             finished = true;
                             break;
-                        default:
-                            break;
                     }
-                    //std::cout << m_options.mpiRank << ":11" << std::endl;
+
+                    delete[] buffer;
                 }
                 break;
             default:
                 break;
         }
-        //std::cout << m_options.mpiRank << ":12" << std::endl;
-    }while(!finished);
+    }
 
-    //std::cout << m_options.mpiRank << ":13" << std::endl;
     //Every mpi rank is synchronized
 	MPI_Barrier(MPI_COMM_WORLD);
 
     //After backtrace, rank 0 prints alignment stuff
     if (m_options.mpiRank == 0)
     {
-        delete t;
-        print_entire_backtrace<N>(finalAlignments);
+        print_entire_backtrace<N>(alignments);
     }
 }
 

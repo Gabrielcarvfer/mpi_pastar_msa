@@ -5,18 +5,18 @@
  * \brief Do a multiple sequence alignment reducing the search space
  * with a-star algorithm alignment
  */
-#include "AStar.h"
+#include "include/AStar.h"
 
 #include <iostream>
 #include <vector>
 
 #include <iterator>
 
-#include "backtrace.h"
-#include "Coord.h"
-#include "Node.h"
-#include "PriorityList.h"
-#include "TimeCounter.h"
+#include "include/backtrace.h"
+#include "include/Coord.h"
+#include "include/Node.h"
+#include "include/PriorityList.h"
+#include "include/TimeCounter.h"
 
 
 #include <sstream>

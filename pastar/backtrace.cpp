@@ -2,7 +2,7 @@
  * \author Daniel Sundfeld
  * \copyright MIT License
  */
-#include "backtrace.h"
+#include "include/backtrace.h"
 
 #ifndef WIN32
 #include <sys/ioctl.h>
@@ -12,10 +12,9 @@
 #include <iostream>
 #include <iomanip>
 #include <limits>
-#include <list>
 
-#include "Sequences.h"
-#include "TimeCounter.h"
+#include "include/Sequences.h"
+#include "include/TimeCounter.h"
 
 // Decide the best lenght size to print
 int get_print_size()
@@ -52,9 +51,9 @@ void backtrace_create_alignment(std::list<char> *alignments, std::map<Coord<N>, 
     int id = seq->get_final_coord<N>().get_id(list_size);
     Node<N> current = ClosedList[id][seq->get_final_coord<N>()];
     std::cout << "Final Score: " << current << std::endl;
-    do 
+    do
     {
-        //std::cout << "Backtrace:\t" << current << std::endl;
+        //std::cout << current.pos.get_id(list_size) << ":" << current << std::endl;
         for (int i = 0; i < N; i++)
         {
             char c;
@@ -67,6 +66,77 @@ void backtrace_create_alignment(std::list<char> *alignments, std::map<Coord<N>, 
         id = current.get_parent().get_id(list_size);
         current = ClosedList[id][current.get_parent()];
     } while (current.pos != Sequences::get_initial_coord<N>());
+}
+
+/*!
+* Using the last node passed, do a partial backtrace until you find an external node.
+* When you find an external node, return the last local node, that is checked.
+* When checking node, if its the node at origin, end of backtrace, if not, send to owner of that node
+* to continue the partial backtrace.
+*/
+template <int N>
+Node<N> partial_backtrace_alignment(std::list<char> *alignments, std::map<Coord<N>, Node<N> > *ClosedList, Node<N> currentE, int list_size, int min, int max)
+{
+    Sequences *seq = Sequences::getInstance();
+    Node<N> current = currentE;
+    int id = current.pos.get_id(list_size);
+
+    //std::cout << "001" << std::endl;
+    //Backtrace until find an node from external thread
+    do
+    {
+        //If current node is local, align
+        //If its from remote node, jump to its father
+        //if ((id >= min) && (id < max) )
+        //{
+            //std::cout << "002" << std::endl;
+            //std::cout << current.pos.get_id(list_size) << ":" << current << std::endl;
+            for (int i = 0; i < N; i++)
+            {
+                char c;
+                if (current.pos[i] != current.get_parent()[i])
+                    c = seq->get_seq(i)[current.pos[i] - 1];
+                else
+                    c = '-';
+                alignments[i].push_front(c);
+            }
+        //}
+       
+        id = current.get_parent().get_id(list_size);
+        //std::cout << "003 id " << id << " min " << min << " max "<< max <<  std::endl;
+        // if next node is remote, stop and return the node
+        if ( (id < min) | (id >= max) )
+        {
+            //std::cout << "004" << std::endl;
+            break;
+        }
+
+        //std::cout << "005" << std::endl;
+        current = ClosedList[id-min][current.get_parent()];
+    } while (current.pos != Sequences::get_initial_coord<N>());
+    //std::cout << "006" << std::endl;
+    return current;
+}
+
+/*!
+* Using the node passed to backtrace who send that node to current rank
+*/
+template <int N>
+void backtrace_origin(std::map<Coord<N>, Node<N> > *ClosedList, int list_size, Node<N> target_node, int min, int max)
+{
+	Sequences *seq = Sequences::getInstance();
+
+	int id = seq->get_final_coord<N>().get_id(list_size);
+	Node<N> current = target_node;
+	do
+	{
+		id = current.get_parent().get_id(list_size);
+		//We've to brake before reaching the parent node, that is on a remote computer and cant be loaded if tried to
+		if ((id < min) | (id >= max))
+			break;
+		current = ClosedList[id][current.get_parent()];
+	} while (current.pos != Sequences::get_initial_coord<N>());
+	return current;
 }
 
 /*!
@@ -145,7 +215,24 @@ void backtrace(std::map< Coord<N>, Node<N> > *ClosedList, int list_size)
     backtrace_print_alignment<N>(alignments);
 }
 
+template <int N>
+void print_entire_backtrace(std::list<char> alignments[])
+{
+    backtrace_print_similarity<N>(alignments);
+    backtrace_print_alignment<N>(alignments);
+}
+
+
+
 #define DECLARE_BACKTRACE_TEMPLATE( X ) \
 template void backtrace< X >(std::map< Coord< X >, Node< X > >*ClosedList, int list_size); \
 
+#define DECLARE_BACKTRACET_TEMPLATE( X ) \
+template class Node<X> partial_backtrace_alignment< X >(std::list<char> *alignments, std::map<Coord<X>, Node<X> > *ClosedList, Node<X> currentE, int list_size,  int min, int max); \
+
+#define DECLARE_BACKTRACETT_TEMPLATE( X ) \
+template void print_entire_backtrace< X >(std::list<char> alignments[X]); \
+
 MAX_NUM_SEQ_HELPER(DECLARE_BACKTRACE_TEMPLATE);
+MAX_NUM_SEQ_HELPER(DECLARE_BACKTRACET_TEMPLATE);
+MAX_NUM_SEQ_HELPER(DECLARE_BACKTRACETT_TEMPLATE);

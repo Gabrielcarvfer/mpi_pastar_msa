@@ -27,12 +27,17 @@ class Node
     public:
         Coord<N> pos; //!< Multidimensional coordinate of the node
         int m_f; //!< priority
+        //bool remote;
         Node();
         Node(const int g, const Coord<N> &pos, const int &parenti);
         friend std::ostream &operator<< <>(std::ostream &lhs, const Node &rhs);
         bool operator!=(const Node &rhs) const;
         void set_max();
+#ifndef WIN32
         int getNeigh(std::vector<Node> a[], int vec_size = 1);
+#else
+        int getNeigh(std::vector<Node> a[], int vec_size = 1, int * pairwise_costs = NULL);
+#endif
         int get_g() const { return m_g; };
         int get_f() const { return m_f; };
         int get_h() const { return m_f - m_g; }; //!< heuristc estimated cost to the goal
@@ -56,6 +61,7 @@ class Node
             ar & m_f;
             ar & pos;
             ar & parenti;
+            //ar & remote;
         }
 };
 

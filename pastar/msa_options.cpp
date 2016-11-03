@@ -4,15 +4,15 @@
  *
  * \brief Parse the arguments options for the msa programs
  */
-#include "msa_options.h"
+#include "include/msa_options.h"
 
 #include <boost/filesystem/operations.hpp>
 #include <boost/filesystem/path.hpp>
 #include <boost/program_options.hpp>
 #include <boost/version.hpp>
 
-#include "Coord.h"
-#include "PAStar.h"
+#include "include/Coord.h"
+#include "include/PAStar.h"
 
 #if BOOST_VERSION<103200
 #error "This file requires libboost 1_32 or greater"

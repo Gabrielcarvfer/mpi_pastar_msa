@@ -6,12 +6,12 @@
  */
 #include <iostream>
 
-#include "AStar.h"
-#include "HeuristicHPair.h"
-#include "max_seq_helper.h"
-#include "msa_options.h"
-#include "Sequences.h"
-#include "read_fasta.h"
+#include "include/AStar.h"
+#include "include/HeuristicHPair.h"
+#include "include/max_seq_helper.h"
+#include "include/msa_options.h"
+#include "include/Sequences.h"
+#include "include/read_fasta.h"
 
 int a_star_run_core(const AStarOpt &opt)
 {

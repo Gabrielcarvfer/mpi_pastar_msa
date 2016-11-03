@@ -3,7 +3,7 @@
  * \author Daniel Sundfeld
  * \copyright MIT License
  */
-#include "TimeCounter.h"
+#include "include/TimeCounter.h"
 
 #include <iomanip>
 

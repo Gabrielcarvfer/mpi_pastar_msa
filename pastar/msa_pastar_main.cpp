@@ -4,15 +4,16 @@
  *
  * \brief The main function for msa_pastar project
  */
-					  
+
 #include <iostream>
-#include "HeuristicHPair.h"
-#include "max_seq_helper.h"
-#include "mpi_dependencies.h"
-#include "msa_options.h"
-#include "PAStar.h"
-#include "Sequences.h"
-#include "read_fasta.h"
+#include "include/HeuristicHPair.h"
+#include "include/max_seq_helper.h"
+#include "include/mpi_dependencies.h"
+#include "include/msa_options.h"
+#include "include/PAStar.h"
+#include "include/Sequences.h"
+#include "include/read_fasta.h"
+#include "include/lz4sup.h"
 
 
 
@@ -57,15 +58,17 @@ int main(int argc, char *argv[])
 	//Inicia MPI e comunicador global
     //MPI_Init(&argc, &argv);
 	int provided = 0;
-	MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided);	 
+	MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided);
 
-	/*if (provided != MPI_THREAD_MULTIPLE)
+	if (provided != MPI_THREAD_MULTIPLE)
 	{
-		MPI_Abort(MPI_COMM_WORLD, 1);
-		MPI_Finalize();
-		exit(1);
-	} */
+		std::cout << "asked " << MPI_THREAD_MULTIPLE << " and " << provided << " was provided" << std::endl;
+		//MPI_Abort(MPI_COMM_WORLD, 1);
+		//MPI_Finalize();
+		//exit(1);
+	}
 
+    MPI_Barrier(MPI_COMM_WORLD);
     PAStarOpt opt;
     std::string filename;
 
@@ -76,10 +79,12 @@ int main(int argc, char *argv[])
     opt.mpiMax = opt.mpiMin + opt.threads_num;
     opt.totalThreads = opt.mpiCommSize * opt.threads_num;
 
-    //std::cout << mpiRank << mpiCommSize << std::endl;
+    //std::cout << opt.mpiRank << opt.mpiCommSize << std::endl;
+
+    //std::cout << opt.mpiRank << ": fase 1" << std::endl;
     //Todos os processos carregam argumentos de configuração
-	if (msa_pastar_options(argc, argv, filename, opt) != 0)
-	{
+    if (msa_pastar_options(argc, argv, filename, opt) != 0)
+    {
         //no caso de erro nas opcoes
         MPI_Abort(MPI_COMM_WORLD, 1);
     }
@@ -88,60 +93,93 @@ int main(int argc, char *argv[])
 
     Sequences *sequences = Sequences::getInstance();
 
+    //std::cout << opt.mpiRank << ": fase 2" << std::endl;
     //Se noh de rank 0
     if (opt.mpiRank == 0)
     {
         //read sequences from file
-	if (read_fasta_file(filename) != 0)
-	{
-	    //erro no arquivo, aborta execucao
-	    MPI_Abort(MPI_COMM_WORLD, 1);
-	    MPI_Finalize();
-	    exit(1);
-	}
+        if (read_fasta_file(filename) != 0)
+        {
+            //erro no arquivo, aborta execucao
+            MPI_Abort(MPI_COMM_WORLD, 1);
+            MPI_Finalize();
+            exit(1);
+        }
 
-    //retrieve number of sequences
-	numSeq = Sequences::get_seq_num();
-	
-    //send sequences to other processes
-	MPI_Bcast(&numSeq, 1, MPI_INT, 0, MPI_COMM_WORLD);
+        //retrieve number of sequences
+        numSeq = Sequences::get_seq_num();
 
-	//for each read sequence
-	for (i = 0; i < numSeq; i++)
-	{
-	    //load sequence
-	    std::string seq = sequences->get_seq(i);
+        //Prepare structures for serialization
+        std::ostringstream ss (std::ios_base::binary);
+        boost::archive::binary_oarchive oa{ ss };
 
-	    //broadcast size and content
-	    seqLen = seq.size()+1;
-	    MPI_Bcast(&seqLen, 1, MPI_INT, 0, MPI_COMM_WORLD);
-	    MPI_Bcast((void*)seq.c_str(), seqLen, MPI_CHAR, 0, MPI_COMM_WORLD);
-	    }
+        oa & numSeq;
+
+        //for each read sequence
+        for (i = 0; i < numSeq; i++)
+        {
+	       //load sequence
+	       std::string seq = sequences->get_seq(i);
+           oa & seq;
+        }
+
+
+        char ** lz4Data = NULL;
+        lz4Data = (char**)calloc(1, sizeof(char*));
+
+        int lz4Size = pastar_lz4_en( ss.str().c_str(), lz4Data, ss.str().length() );
+        //Sending message
+        
+        //Sending message
+        for (i = 1; i < opt.mpiCommSize; i++)
+            MPI_Send(*lz4Data, lz4Size, MPI_CHAR, i, 0, MPI_COMM_WORLD);
+
+        //Clearing buffer
+        delete[] *lz4Data;
+        free(lz4Data);
     }
     else
     {
-        MPI_Bcast(&numSeq, 1, MPI_INT, 0, MPI_COMM_WORLD);
-	
-		char * seqBuff = NULL;
-        //for each announced sequence
-        for (i = 0; i < numSeq; i++)
-        {
-            //receive size of next sequence
-            MPI_Bcast(&seqLen, 1, MPI_INT, 0, MPI_COMM_WORLD);
+            int i, sender, n_bytes = 0;
+            MPI_Status status;
 
-            //prepare buffer
-            seqBuff = new char[seqLen];
+            MPI_Probe(0, 0, MPI_COMM_WORLD, &status);
+            MPI_Get_count(&status, MPI_CHAR, &n_bytes);
+            sender = status.MPI_SOURCE;
 
-            //receive sequence
-            MPI_Bcast(seqBuff, seqLen, MPI_CHAR, 0, MPI_COMM_WORLD);
-            std::string seq (seqBuff);
+            char ** buffer = NULL;
+            buffer = (char**)calloc(1, sizeof(char*));
+            *buffer = new char[n_bytes]();
 
-            //save sequence to local process
-            sequences->set_seq(seq);
+            MPI_Recv(*buffer, n_bytes, MPI_CHAR, sender, 0, MPI_COMM_WORLD, &status);
 
-	    delete[] seqBuff;
-        }
-	}
+            int len = pastar_lz4_dec(buffer);
+
+            //Unserialize data into place
+            std::istringstream ss(std::string(*buffer, *buffer + len), std::ios_base::binary);
+            
+            //Free buffer
+            delete[] *buffer;
+            boost::archive::binary_iarchive ia{ ss };
+
+            std::string seq;
+            int numSeq = 0;
+
+            ia & numSeq;
+            //Recover stuff in same order as saved
+            for (int j = 0; j < numSeq; j++)
+            {
+                ia & seq;
+                //save sequence to local process
+                sequences->set_seq(seq);
+            }   
+
+            free(buffer);
+
+        
+    }
+
+    //std::cout << opt.mpiRank << ": fase 3" << std::endl;
 
     //Inicia rotina principal
     int ret = pa_star_run(opt);
