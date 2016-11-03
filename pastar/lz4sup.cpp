@@ -1,3 +1,10 @@
+/*!
+ * \authors {Gabriel Ferreira}
+ * \copyright MIT License
+ *
+ * \brief LZ4 generic encode and decode for this project
+ */
+
 #include "include/lz4sup.h"
 #include <lz4.h> 
 #include <stdint.h>
