@@ -85,7 +85,7 @@ Node<N> partial_backtrace_alignment(std::list<char> *alignments, std::map<Coord<
     do
     {
       
-        std::cout << current.pos.get_id(list_size) << ":" << current << std::endl;
+        //std::cout << current.pos.get_id(list_size) << ":" << current << std::endl;
         for (int i = 0; i < N; i++)
         {
             char c;
