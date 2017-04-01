@@ -75,10 +75,6 @@ int main(int argc, char *argv[])
     MPI_Comm_rank(MPI_COMM_WORLD, &opt.mpiRank);
     MPI_Comm_size(MPI_COMM_WORLD, &opt.mpiCommSize);
 
-    opt.mpiMin = 0 + opt.mpiRank * opt.threads_num;
-    opt.mpiMax = opt.mpiMin + opt.threads_num;
-    opt.totalThreads = opt.mpiCommSize * opt.threads_num;
-
     //std::cout << opt.mpiRank << opt.mpiCommSize << std::endl;
 
     //std::cout << opt.mpiRank << ": fase 1" << std::endl;
@@ -88,6 +84,10 @@ int main(int argc, char *argv[])
         //no caso de erro nas opcoes
         MPI_Abort(MPI_COMM_WORLD, 1);
     }
+
+    opt.mpiMin = 0 + opt.mpiRank * opt.threads_num;
+    opt.mpiMax = opt.mpiMin + opt.threads_num;
+    opt.totalThreads = opt.mpiCommSize * opt.threads_num;
 
     int numSeq, seqLen, i;
 

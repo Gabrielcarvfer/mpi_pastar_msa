@@ -8,6 +8,9 @@
 #include <sched.h>
 #endif
 
+// Defining Ryzen and running with 2 MPI processes (8 thread each) vs a single 16-thread process
+// the Kinase alignment of kinase file drops from 33 seconds to 22. CCX latency related.
+//#define RYZEN 
 
 #include <chrono>
 #include <mpi.h>
@@ -578,7 +581,11 @@ int PAStar<N>::worker(int tid, const Coord<N> &coord_final)
 {
 
 #ifndef WIN32
+	#ifndef RYZEN
 	set_affinity(tid);
+	#else
+	set_affinity(tid+m_options.mpiMin);
+	#endif
 #endif
 
 	//sync all threads from all nodes to prevent problems
