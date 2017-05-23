@@ -14,6 +14,7 @@ class Cost {
 
         //! Do not use char as array subscripts, this enum 'cast' them to integer
         enum {
+            DASH = '-',
             A = 'A',
             B = 'B',
             C = 'C',

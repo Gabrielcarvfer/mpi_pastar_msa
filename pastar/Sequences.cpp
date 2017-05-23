@@ -13,11 +13,12 @@
 
 Sequences::Sequences()
 {
-    n_seq = 0;
+
 }
 
 //! Number of sequences
 int Sequences::n_seq = 0;
+int Sequences::max_length = 0;
 
 //! Singleton instance
 Sequences Sequences::instance;
@@ -38,8 +39,14 @@ void Sequences::destroyInstance()
 int Sequences::set_seq(const std::string &x)
 {
     seqs.push_back(x);
-    final_coord[n_seq] = x.length();
+    int seq_len = x.length();
+
+    final_coord[n_seq] = seq_len;
     ++n_seq;
+
+    if (max_length < seq_len)
+        max_length = seq_len;
+
     return n_seq;
 }
 

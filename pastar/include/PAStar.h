@@ -219,9 +219,9 @@ class PAStar {
 		void flush_receiver();
 		bool end_of_transmission;
 
-        // Backtrack
+        // Backtrace
         void sync_pastar_data(void);
-        void print_answer(void);
+        void distributed_backtrace_n_print(void);
 
 
 };

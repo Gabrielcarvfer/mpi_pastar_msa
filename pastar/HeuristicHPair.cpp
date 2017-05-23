@@ -11,6 +11,7 @@
 #include "include/PairAlign.h"
 #include "include/Sequences.h"
 #include "include/TimeCounter.h"
+#include "include/WeightedSP.hpp"
 
 //! Singleton instance
 HeuristicHPair HeuristicHPair::instance;
@@ -56,6 +57,8 @@ void HeuristicHPair::init()
         }
     }
     std::cout << "done!\n";
+
+    weightAltschulsRationale2(seq);
     return;
 }
 
@@ -77,7 +80,56 @@ int HeuristicHPair::calculate_h(const Coord<N> &c) const
     return h;
 }
 
+/*!
+ * Return a h-value to the Coord \a c using HPair logic.
+ * H is the sum of all pairwise values based on reverse strings.
+ */
+
+template <int N>
+int HeuristicHPair::calculateWeighted_h(const Coord<N> &c) const
+{
+    int h = 0;
+    for (std::vector<PairAlign*>::const_iterator it = mAligns.begin() ; it != mAligns.end(); ++it)
+    {
+        int x = (*it)->getPair().first;
+        int y = (*it)->getPair().second;
+
+        h += weightMatrix[x][y]*(*it)->getScore(c[x], c[y]);
+    }
+    return h;
+}
+
+/*
+int overlapBetweenLeafs(Sequence * seq1, Sequence * seq2)
+{
+
+}
+
+void HeuristicHPair::computeWeightMatrix(Sequences * seq)
+{
+    int num_seq = seq->get_seq_num();
+
+    weightMatrix.reserve(num_seq);
+
+    for (int i = 0; i < num_seq; i++)
+    {
+        weightMatrix[i].reserve(num_seq);
+
+        for (int j = i + 1; j < num_seq; j++)
+        {
+            auto Si = seq.get_seq(i);
+            auto Sj = seq.get_seq(j);
+
+            float overlapLength = overlapBetweenLeafs(Si, Sj);
+
+            weightMatrix[i][j] = 1.0 - (overlapLength*overlapLength) / (Si.length * Sj.length);
+        }
+    }
+}*/
+
+
 #define DECLARE_TEMPLATE( X ) \
-template int HeuristicHPair::calculate_h< X >(Coord< X > const&) const;
+template int HeuristicHPair::calculate_h< X >(Coord< X > const&) const; \
+template int HeuristicHPair::calculateWeighted_h< X >(Coord< X > const&) const;\
 
 MAX_NUM_SEQ_HELPER(DECLARE_TEMPLATE);
