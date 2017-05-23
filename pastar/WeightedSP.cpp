@@ -97,8 +97,8 @@ float convert_path_to_cost(int I, int J,int n, int m, int **dd, int **hh, int **
         V=vv[i][j]-(dir==VERT ? (j==m ? EfectiveGapCost:GapCost) : 0);
         H=hh[i][j]-(dir==HORZ ? (i==n ? EfectiveGapCost:GapCost) : 0);
         M=minOf3(V,H,dd[i][j]);
-        std::cout << "I="<< I << " J=" << J;
-        std::cout << " V=" << V << " H="<<H<<" M="<<M<<std::endl;
+        //std::cout << "I="<< I << " J=" << J;
+        //std::cout << " V=" << V << " H="<<H<<" M="<<M<<std::endl;
         if  (!j || M==V)
         {
             dir=VERT;
@@ -194,10 +194,9 @@ void primer(std::vector<std::string> *seq, float *** Dij, float ***scale)
             {
                 for (Gi=i==n?EfectiveGapCost:GapCost, j=1; j<=m; j++)
                 {
-                    //todo: discover what that does
+                    
                     Gj= j==m ? EfectiveGapCost : GapCost;
 
-                    //dafuck
                     dd[i][j] = minOf3(dd[i-1][j-1] , hh[i-1][j-1] , vv[i-1][j-1] ) + Cost::cost(seqA[i], seqB[j]);
 
                     hh[i][j] = minOf3(dd[i][j-1]+Gi, hh[i][j-1]   , vv[i][j-1]+Gi) + Cost::cost(DASH   , seqB[j]);
@@ -317,7 +316,7 @@ void phylogeneticThreeNeighborJoin(std::vector<std::string>  seq, std::vector<Tr
 
 
     min_i = min_j = 0;
-    std::cout << "neighbors join 1" << std::endl;
+    //std::cout << "neighbors join 1" << std::endl;
     //Get number of sequences being aligned
     num_seq = nodesRemaining = seq.size();
 
@@ -331,7 +330,7 @@ void phylogeneticThreeNeighborJoin(std::vector<std::string>  seq, std::vector<Tr
 
 
 
-    std::cout << "neighbors join 2" << std::endl;
+    //std::cout << "neighbors join 2" << std::endl;
     //Build tree until we have only two nodes remaining (start as num_seq)
     while(nodesRemaining > 2)
     {
@@ -362,7 +361,7 @@ void phylogeneticThreeNeighborJoin(std::vector<std::string>  seq, std::vector<Tr
         //Assign a big value for min, to prevent problems
         min = BIG_MIN_VAL;
     }
-    std::cout << "neighbors join 3" << std::endl;
+    //std::cout << "neighbors join 3" << std::endl;
 
     //Join last remaining nodes with a root node
     TreeNode * ancestor = new TreeNode(nullptr, (*tree)[0], (*tree)[1], nullptr, 0.0, 0.0, 0.0, 0.0, 0.0, -2);
@@ -393,7 +392,7 @@ void phylogeneticThreeNeighborJoin(std::vector<std::string>  seq, std::vector<Tr
     //Create new node and emplace it on the list
     (*tree).push_back(ancestor);
     (*nodesList).push_back(ancestor);
-    std::cout << "neighbors join 4" << std::endl;
+    //std::cout << "neighbors join 4" << std::endl;
 
 }
 
@@ -421,7 +420,7 @@ void compute_weights_from_tree(float product, float sum, TreeNode* no, TreeNode*
 */
 void weightAltschulsRationale2(Sequences * seqs)
 {
-    std::cout << "altschul 1" << std::endl;
+    //std::cout << "altschul 1" << std::endl;
     float ** weightMatrix, ** weightMatrix2, sm;
     std::vector<TreeNode*> tree;
     std::vector<TreeNode*> nodesList;
@@ -487,7 +486,7 @@ void weightAltschulsRationale2(Sequences * seqs)
     for(; (no= *pN)->sequenceNumber > -1; ++pN)
         compute_weights_from_tree(1.0, no->weight,no->parent,no->brother, &weightMatrix, pN);
 
-    std::cout << "altschul 5" << std::endl;
+    //std::cout << "altschul 5" << std::endl;
     // Scale pair weights so that smallest is about 8
     sm=1.0E+30;
 
@@ -500,11 +499,11 @@ void weightAltschulsRationale2(Sequences * seqs)
         for (int j=i+1;j<num_seq;++j)
         {
             inst->weightMatrix[i][j]=weightMatrix[i][j]/sm+0.5;
-            std::cout << "finalWeightMatrix["<<i<<"]["<< j << "]="<< inst->weightMatrix[i][j];
-            std::cout << " weightMatrix[" << i << "][" << j<<"]=" << weightMatrix[i][j] << std::endl;
+            //std::cout << "finalWeightMatrix["<<i<<"]["<< j << "]="<< inst->weightMatrix[i][j];
+            //std::cout << " weightMatrix[" << i << "][" << j<<"]=" << weightMatrix[i][j] << std::endl;
         }
 
-    std::cout << "altschul 6" << std::endl;
+    //std::cout << "altschul 6" << std::endl;
     //Free intermediary weight matrix
     for (int i=0; i < num_seq;i++)
     {
