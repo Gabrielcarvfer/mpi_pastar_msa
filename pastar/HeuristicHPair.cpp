@@ -75,7 +75,8 @@ int HeuristicHPair::calculate_h(const Coord<N> &c) const
         int x = (*it)->getPair().first;
         int y = (*it)->getPair().second;
 
-        h += (*it)->getScore(c[x], c[y]);
+        h += (*it)->getScore(c[x], c[y])*weightMatrix[c[x]][c[y]];
+        //std::cout << "x "<<x<<" y "<<y<<" score " << (*it)->getScore(c[x],c[y]) << " weight "<<weightMatrix[c[x]][c[y]]<<std::endl;
     }
     return h;
 }

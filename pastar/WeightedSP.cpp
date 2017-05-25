@@ -49,7 +49,33 @@ void rpt(TreeNode * A)
 	}
 }
 
-void join_nodes(int min_i, int min_j, std::vector<TreeNode*> *tree,std::vector<TreeNode*> *nodesList)
+
+float compute_path_cost_to_leafs(TreeNode * A, float total, int * count2)
+{
+    if (A->sequenceNumber >= 0)
+        return(total + A->weight);
+
+    (*count2)++;
+    return(compute_path_cost_to_leafs(A->leftSon,A->weight+total,count2) + compute_path_cost_to_leafs(A->rightSon,A->weight+total,count2));
+}
+
+float compute_curr_cost(int i, int j, std::vector<TreeNode*>*tree,float *** Dij)
+{
+	float diz=0,djz=0;
+	int nodesRemaining = tree->size();
+        int t;
+
+    int count2 = 1;
+	for (t=0; t<nodesRemaining; ++t) if (t!=i && t!=j) {
+		diz += compute_path_cost(i,t,tree,Dij);
+		djz += compute_path_cost(j,t,tree,Dij);
+	}
+	diz = diz / (nodesRemaining - 2);
+	djz = djz / (nodesRemaining - 2);
+	return((compute_path_cost(i,j,tree,Dij) + diz - djz)/2 - compute_path_cost_to_leafs((*tree)[i],0.0,&count2)/count2);
+}
+
+void join_nodes(int min_i, int min_j, std::vector<TreeNode*> *tree,std::vector<TreeNode*> *nodesList,float ***Dij)
 {
     //std::cout<< "join nodes 1" << std::endl;
     TreeNode *leftNode,*rightNode,*newNode;
@@ -57,29 +83,32 @@ void join_nodes(int min_i, int min_j, std::vector<TreeNode*> *tree,std::vector<T
 
     //Get pointer to left node and remove from node list
     leftNode = (*tree)[min_i];
+    leftNode->weight = compute_curr_cost(min_i,min_j,tree, Dij);
 
     //Get pointer to right node and remove from node list
     rightNode = (*tree)[min_j];
+    rightNode->weight = compute_curr_cost(min_j,min_i,tree,Dij);
 
-    //Remove references
-    (*tree).erase((*tree).begin()+min_i);
 
-    if (min_i > min_j)
-        (*tree).erase((*tree).begin()+min_j);
-    else
-        (*tree).erase((*tree).begin()+min_j-1);
 
     //std::cout<< "join nodes 2" << std::endl;
     //Create new internal node
-    newNode = new TreeNode(nullptr,leftNode,rightNode,nullptr,leftNode->weight*rightNode->weight,0.0, 0.0, 0.0, 0.0, -1);
+    newNode = new TreeNode(nullptr,leftNode,rightNode,nullptr,0.0,0.0, 0.0, 0.0, 0.0, -1);
+
+    //Remove references
+    //(*tree).erase((*tree).begin()+min_i);
+    (*tree)[min_i] = newNode;
+    //Remove the node in position min_j, or min_j-1, in case of min_i being smaller and shifting every node to left
+    (*tree).erase((*tree).begin()+min_j);
 
     //Update previously removed nodes
     leftNode->brother = rightNode;
     rightNode->brother = leftNode;
     leftNode->parent = rightNode->parent = newNode;
 
+
     //Create new node and emplace it on the list
-    (*tree).push_back(newNode);
+    //(*tree).push_back(newNode);
     (*nodesList).push_back(newNode);
     //std::cout<< "join nodes 3" << std::endl;
 
@@ -123,7 +152,7 @@ float convert_path_to_cost(int I, int J,int n, int m, int **dd, int **hh, int **
 
 void primer(std::vector<std::string> *seq, float *** Dij, float ***scale)
 {
-    register int    I,J,i,j,Gi,Gj,n,m;
+    int    I,J,i,j,Gi,Gj,n,m;
     //std::cout << "primer 1" << std::endl;
     int num_seq, max_seq_length = 1000;
     num_seq = seq->size();
@@ -140,17 +169,20 @@ void primer(std::vector<std::string> *seq, float *** Dij, float ***scale)
     dd = new int*[max_seq_length]();
     hh = new int*[max_seq_length]();
     vv = new int*[max_seq_length]();
-
+    (*scale)[0][0] = 1;
     for (int k = 0; k < max_seq_length; k++)
     {
         dd[k] = new int[max_seq_length]();
         hh[k] = new int[max_seq_length]();
         vv[k] = new int[max_seq_length]();
+
         for (int l = 1; l < max_seq_length;l++)
         {
             dd[k][l] = dd[k][l-1]+max_seq_length;
             hh[k][l] = hh[k][l-1]+max_seq_length;
             vv[k][l] = vv[k][l-1]+max_seq_length;
+            if (k < num_seq && l < num_seq)
+                (*scale)[k][l] = 1;
         }
     }
 
@@ -190,18 +222,20 @@ void primer(std::vector<std::string> *seq, float *** Dij, float ***scale)
             //std::cout << "primer 4" << std::endl;
 
             //For each element in sequences I and J
-            for (i=1; i<=n; i++)
+            for (i=1; i<n; i++)
             {
-                for (Gi=i==n?EfectiveGapCost:GapCost, j=1; j<=m; j++)
+                Gi = ( i==(n-1) ? EfectiveGapCost : GapCost);
+                for (j=1; j<m; j++)
                 {
-                    
-                    Gj= j==m ? EfectiveGapCost : GapCost;
+
+                    Gj = (j==(m-1) ? EfectiveGapCost : GapCost);
 
                     dd[i][j] = minOf3(dd[i-1][j-1] , hh[i-1][j-1] , vv[i-1][j-1] ) + Cost::cost(seqA[i], seqB[j]);
 
                     hh[i][j] = minOf3(dd[i][j-1]+Gi, hh[i][j-1]   , vv[i][j-1]+Gi) + Cost::cost(DASH   , seqB[j]);
 
                     vv[i][j] = minOf3(dd[i-1][j]+Gj, hh[i-1][j]+Gj, vv[i-1][j]   ) + Cost::cost(seqA[i], DASH   );
+                    //std::cout << "i"<<i<<" j"<<j<<" dd "<<dd[i][j]<<" hh "<<hh[i][j] << " vv " << vv[i][j]<< std::endl;
                 }
             }
 
@@ -268,41 +302,49 @@ float compute_path_cost(int i, int j, std::vector<TreeNode*> *tree, float ***Dij
     return (float)(cost/path_length);
 }
 
-float compute_S(int i, int j, std::vector<TreeNode*> *tree, float ***Dij)
+float compute_path_cost_n(TreeNode* A, TreeNode* B, std::vector<TreeNode*> *tree, float ***Dij)
 {
-	int t, tt, numNodes = (*tree).size();
+    int path_length = 1;
+    //std::cout << "comp path cost 1" << std::endl;
+    //std::cout << "i=" << i << " j=" << j << " tree[i]=" << (*tree)[i] << " tree[j]=" << (*tree)[j] << std::endl;
+    float cost = compute_path_cost_rec(A,B,&path_length,Dij);
+
+    //std::cout << "dist["<<i<<"]["<<j<<"="<<cost<< " count=" <<path_length << std::endl;
+    //Calculates the path cost that links two leafs and divide by the number of nodes linking them (length)
+    return (float)(cost/path_length);
+}
+
+float compute_S(int i, int j, int numNodes, std::vector<TreeNode*> *tree, float ***Dij)
+{
+	int t, tt;
 	float s1=0, s2=0;
 
 	for (t=0;t<numNodes;t++)
 		if (t!=i && t!=j)
 		{
 			s1 += compute_path_cost(i,t,tree,Dij)+compute_path_cost(j,t,tree,Dij);
-			//std::cout << "s1=" << s1 << std::endl;
+			//std::cout << "s1=" << (int) s1;
+			//std::cout <<" seqI="<<(*tree)[i]->sequenceNumber;
+			//std::cout <<" seqJ="<<(*tree)[j]->sequenceNumber;
+			//std::cout <<" seqT="<<(*tree)[t]->sequenceNumber<<std::endl;
         }
 	s1 = s1 / (2 * (numNodes - 2));
-	//std::cout << "s1 final=" << s1 << std::endl;
+	//std::cout << "s1 final=" << (int) s1 << std::endl;
 
-	for (t=0; t<numNodes; t++)
+	for (t=0; t<numNodes-1; t++)
 		for (tt=t+1; tt<numNodes; tt++)
 	    	if (t!=i && t!=j && tt!=i && tt!=j)
 	    	{
                 s2 += compute_path_cost(t,tt,tree,Dij);
-                //std::cout << "s2=" << s2 << std::endl;
+                //std::cout << "s2=" << (int) s1 << " seqI="<<(*tree)[t]->sequenceNumber<<" seqJ="<<(*tree)[tt]->sequenceNumber<<std::endl;
             }
     s2 = s2 / (numNodes- 2);
-    //std::cout << "s2 final=" << s2 << std::endl;
+    //std::cout << "s2 final=" << (int) s2 << std::endl;
     float total = (s1 + s2 + compute_path_cost(i,j,tree,Dij) / 2);
     return total;
 }
 
-float compute_path_cost_to_leafs(TreeNode * A, float total, int * count2)
-{
-    if (A->sequenceNumber >= 0)
-        return(total + A->weight);
 
-    (*count2)++;
-    return(compute_path_cost_to_leafs(A->leftSon,A->weight+total,count2) + compute_path_cost_to_leafs(A->rightSon,A->weight+total,count2));
-}
 
 #define BIG_MIN_VAL 1.0E20
 
@@ -328,8 +370,6 @@ void phylogeneticThreeNeighborJoin(std::vector<std::string>  seq, std::vector<Tr
         (*nodesList).push_back(node);
     }
 
-
-
     //std::cout << "neighbors join 2" << std::endl;
     //Build tree until we have only two nodes remaining (start as num_seq)
     while(nodesRemaining > 2)
@@ -340,8 +380,9 @@ void phylogeneticThreeNeighborJoin(std::vector<std::string>  seq, std::vector<Tr
             for (int j = i+1; j < nodesRemaining; j++)
             {
                 //Recursive compute of path cost divided by length
-                tmp = compute_S(i,j,tree,Dij);
-                std::cout << "minimize_Sij[" << i << "][" << j << "] tmp=" <<tmp<< " min=" <<min << " Dij="<<(*Dij)[i][j]<<std::endl;
+                tmp = compute_S(i,j,nodesRemaining,tree,Dij);
+                //std::cout << "minimize_Sij[" << i << "][" << j << "] tmp=" <<tmp<< " min=" <<min << " Dij="<<(*Dij)[i][j]<<std::endl;
+
                 //If length smaller than the previous minimum, save the node pair and length
                 if (tmp < min)
                 {
@@ -352,8 +393,9 @@ void phylogeneticThreeNeighborJoin(std::vector<std::string>  seq, std::vector<Tr
             }
         }
 
+        //std::cout << "min_i "<<min_i<<" min_j "<< min_j<< " min "<< min<<std::endl;
         //Remove two nodes and join them with an internal node
-        join_nodes(min_i,min_j,tree,nodesList);
+        join_nodes(min_i,min_j,tree,nodesList,Dij);
 
         //As we remove 2 nodes from the "tree" list and add an internal one, we need to subtract a node each round
         nodesRemaining--;
@@ -363,55 +405,58 @@ void phylogeneticThreeNeighborJoin(std::vector<std::string>  seq, std::vector<Tr
     }
     //std::cout << "neighbors join 3" << std::endl;
 
-    //Join last remaining nodes with a root node
-    TreeNode * ancestor = new TreeNode(nullptr, (*tree)[0], (*tree)[1], nullptr, 0.0, 0.0, 0.0, 0.0, 0.0, -2);
-    int count2 = 1;
-    float len;
-    len = compute_path_cost(0,1,tree,Dij);
-    len -= compute_path_cost_to_leafs((*tree)[0],0.0,&count2) / count2;
-    count2 = 1;
-    len -= compute_path_cost_to_leafs((*tree)[1],0.0,&count2) / count2;
-    ancestor->weight = len;
 
+    //Pick up the remaining nodes
     TreeNode *leftNode,*rightNode;
-    leftNode = rightNode = nullptr;
+    leftNode = (*tree)[0];
+    rightNode = (*tree)[1];
 
-    //Get pointer to left node and remove from node list
-    leftNode = (*tree).at(0);
-    (*tree).erase((*tree).begin());
+    //Create an ancestor node that connects them
+    TreeNode * ancestor = new TreeNode(nullptr, leftNode, rightNode, nullptr, 0.0, 0.0, 0.0, 0.0, 0.0, -2);
 
-    //Get pointer to right node and remove from node list
-    rightNode = (*tree).at(0);
-    (*tree).erase((*tree).begin());
-
-    //Update previously removed nodes
+    //Update nodes pointers to brothers and parent
     leftNode->brother = rightNode;
     rightNode->brother = leftNode;
     leftNode->parent = rightNode->parent = ancestor;
 
-    //Create new node and emplace it on the list
+    //Remove left and right node from node list, keeping only the ancestor node, finishing the tree structure
+    (*tree).erase((*tree).begin());
+    (*tree).erase((*tree).begin());
+
+    //Emplace the ancestor on the nodes list (the tree one and real list one)
     (*tree).push_back(ancestor);
     (*nodesList).push_back(ancestor);
     //std::cout << "neighbors join 4" << std::endl;
+
+    //Calculate weight of left son
+    int count2 = 1;
+    float len;
+    len = compute_path_cost_n(leftNode,rightNode,tree,Dij);
+    len -= compute_path_cost_to_leafs(leftNode,0.0,&count2) / count2;
+    count2 = 1;
+    len -= compute_path_cost_to_leafs(rightNode,0.0,&count2) / count2;
+    ancestor->leftSon->weight = len;
+
+
 
 }
 
 void compute_weights_from_tree(float product, float sum, TreeNode* no, TreeNode* brother, float *** weightMatrix, TreeNode ** pN)
 {
-    printf("trace\nno=%d\nro=%d\npN=%d\nprod=%f\nsum=%f\n\n\n", no, brother, *pN,product, sum);
+    //printf("trace\nno=%d\nro=%d\npN=%d\nprod=%f\nsum=%f\n\n\n", no->sequenceNumber, brother, (*pN)->sequenceNumber,product, sum);
     if (no->sequenceNumber > -1)
     {
-        (*weightMatrix)[(*pN)->sequenceNumber][no->sequenceNumber] = sum*product;
+        (*weightMatrix)[(*pN)->sequenceNumber][no->sequenceNumber]=(*weightMatrix)[no->sequenceNumber][(*pN)->sequenceNumber] = sum*product;
     }
-    else if (brother==NULL)
+    else if (brother==nullptr)
     {
-        compute_weights_from_tree(product * no->leftSon->W, sum + no->rightSon->weight, no->rightSon, NULL, weightMatrix, pN);
-        compute_weights_from_tree(product * no->rightSon->W, sum + no->leftSon->weight, no->leftSon, NULL, weightMatrix, pN);
+        compute_weights_from_tree(product * no->leftSon->W, sum + no->rightSon->weight, no->rightSon, nullptr, weightMatrix, pN);
+        compute_weights_from_tree(product * no->rightSon->W, sum + no->leftSon->weight, no->leftSon, nullptr, weightMatrix, pN);
     }
     else
     {
-        compute_weights_from_tree(product * no->V, sum + brother->weight, brother, NULL, weightMatrix, pN);
-        if (no->sequenceNumber != -1)
+        compute_weights_from_tree(product * no->V, sum + brother->weight, brother, nullptr, weightMatrix, pN);
+        if (no->sequenceNumber != -2)
             compute_weights_from_tree(product * brother->W, sum + no->weight, no->parent, no->brother, weightMatrix, pN);
     }
 }
@@ -458,19 +503,23 @@ void weightAltschulsRationale2(Sequences * seqs)
     phylogeneticThreeNeighborJoin(sequences,&tree,&nodesList, &(inst->weightMatrix));
     //std::cout << "altschul 4" << std::endl;
 
+    //Print tree
     rpt(tree[0]);
 
     TreeNode ** pN, *no;
     //Compute partial weights
-    for (pN=nodesList.data(); (no= *pN)->sequenceNumber > -1; ++pN)
+    for (pN=nodesList.data(); (*pN)->sequenceNumber > -1; ++pN)
     {
+        no=*pN;
         no->w = 1.0;
         no->W = no->weight;
+        //std::cout << "seqNum=" <<no->sequenceNumber<< " weight="<<no->weight<<std::endl;
     }
     for (; (no= *pN)->sequenceNumber > -2; ++pN)
     {
         no->w = no->leftSon->w * no->rightSon->W + no->leftSon->W * no->rightSon->w;
         no->W = no->weight  * no->w     + no->leftSon->W * no->rightSon->W;
+        //std::cout << "seqNum=" <<no->sequenceNumber<< " weight="<<no->weight<<std::endl;
     }
     no->V = 1;
     no->v = 0;
@@ -492,14 +541,17 @@ void weightAltschulsRationale2(Sequences * seqs)
 
     for (int j=1;j<num_seq;++j)
         for (int i=0;i<j;++i)
-            if (weightMatrix[i][j]<sm)
+            if (weightMatrix[i][j] > 1 && weightMatrix[i][j]<sm)
+            {
                 sm=weightMatrix[i][j];
+                //std::cout << "preWeightMatrix["<<i<<"]["<< j << "]="<< weightMatrix[i][j] << std::endl;
+                }
     sm /= 7.9;
     for (int i=0;i<num_seq-1;++i)
         for (int j=i+1;j<num_seq;++j)
         {
-            inst->weightMatrix[i][j]=weightMatrix[i][j]/sm+0.5;
-            //std::cout << "finalWeightMatrix["<<i<<"]["<< j << "]="<< inst->weightMatrix[i][j];
+            inst->weightMatrix[i][j]=inst->weightMatrix[j][i]=weightMatrix[i][j]/sm+0.5;
+            //std::cout << "finalWeightMatrix["<<i<<"]["<< j << "]="<< inst->weightMatrix[i][j] << std::endl;
             //std::cout << " weightMatrix[" << i << "][" << j<<"]=" << weightMatrix[i][j] << std::endl;
         }
 

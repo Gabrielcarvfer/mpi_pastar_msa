@@ -41,10 +41,10 @@ public:
              this->rightSon = rightSon;
              this->brother = brother;
              this->weight = weight;
-             this->w = w;
-             this->W = W;
-             this->v = v;
-             this->V = V;
+             this->w = 0.0;
+             this->W = 0.0;
+             this->v = 0.0;
+             this->V = 0.0;
              this->sequenceNumber = sequenceNumber;
              };
 
@@ -65,7 +65,7 @@ public:
 
 
 //Functions
-void join_nodes(int min_i, int min_j, std::vector<TreeNode*> *tree,std::vector<TreeNode*> *nodesList);
+void join_nodes(int min_i, int min_j, std::vector<TreeNode*> *tree,std::vector<TreeNode*> *nodesList, float ***Dij);
 
 
 
