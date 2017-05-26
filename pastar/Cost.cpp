@@ -11,6 +11,27 @@ int Cost::pam250[Z][Z] = { };
 
 Cost::Cost()
 {
+    pam250[DASH][DASH] = 0;
+    pam250[DASH][P] = pam250[P][DASH] = 12;
+    pam250[DASH][A] = pam250[A][DASH] = 12;
+    pam250[DASH][G] = pam250[G][DASH] = 12;
+    pam250[DASH][N] = pam250[N][DASH] = 12;
+    pam250[DASH][D] = pam250[D][DASH] = 12;
+    pam250[DASH][E] = pam250[E][DASH] = 12;
+    pam250[DASH][Q] = pam250[Q][DASH] = 12;
+    pam250[DASH][H] = pam250[H][DASH] = 12;
+    pam250[DASH][R] = pam250[R][DASH] = 12;
+    pam250[DASH][K] = pam250[K][DASH] = 12;
+    pam250[DASH][M] = pam250[M][DASH] = 12;
+    pam250[DASH][I] = pam250[I][DASH] = 12;
+    pam250[DASH][L] = pam250[L][DASH] = 12;
+    pam250[DASH][V] = pam250[V][DASH] = 12;
+    pam250[DASH][F] = pam250[F][DASH] = 12;
+    pam250[DASH][Y] = pam250[Y][DASH] = 12;
+    pam250[DASH][W] = pam250[W][DASH] = 12;
+
+
+
     pam250[C][C] = 5;
     pam250[C][S] = pam250[S][C] = 17;
     pam250[C][T] = pam250[T][C] = 19;
@@ -245,5 +266,6 @@ Cost::Cost()
 //! Compare \a r and \a l and return the cost.
 int Cost::cost(const char r, const char l)
 {
-    return pam250[(int)r][(int)l];
+    int cost = pam250[(int)r][(int)l];
+    return cost;
 }

@@ -150,6 +150,7 @@ inline int Node<N>::pairCost(const int &neigh_num, const int &mm_cost, const int
         return Cost::GapOpen;
     return Cost::GapExtension;
 }
+
 /*!
  * Add all neighboors to a vector \a a. If it is not a board node,
  * 2pow(n-1) nodes are added.
@@ -186,13 +187,13 @@ int Node<N>::getNeigh(std::vector<Node> a[], int vec_size, int * pairwise_costs)
     {
         c = pos.neigh(i);
         if (borderCheck(c))
-        { 
+        {
             k = 0;
             int costs = 0; // match, mismatch and gap sum-of-pairs cost
             for (unsigned int j = 0; j < size; j++)
             {
                 costs += pairCost(i,pairwise_costs[k], pairwise_costs[k+1], pairwise_costs[k+2]);
-                k += 3;       
+                k += 3;
             }
             a[c.get_id(vec_size)].push_back(Node(m_g + costs, c, i));
         }
@@ -206,6 +207,7 @@ int Node<N>::getNeigh(std::vector<Node> a[], int vec_size)
 {
     int i;
     Sequences *seq = Sequences::getInstance();
+    HeuristicHPair * hpairInst = HeuristicHPair::getInstance();
     Coord<N> c;
 
     /* Vector of tuple. First field cost, Second field, sequence1.
@@ -221,7 +223,8 @@ int Node<N>::getNeigh(std::vector<Node> a[], int vec_size)
         for (int j = i + 1; j < N; j++)
         {
             int cost = Cost::cost(seq->get_seq(i)[pos[i]], seq->get_seq(j)[pos[j]]);
-            std::vector<int> tuple = {cost, i, j};
+            std::vector<int> tuple = {cost, i, j, (int)hpairInst->weightMatrix[i][j]};
+            //std::cout << "i "<<i<<" j "<<j<< " cost "<<cost<<" weight "<<tuple[3]<<std::endl;
             pairwise_costs.push_back(tuple);
             k++;
         }
@@ -232,17 +235,19 @@ int Node<N>::getNeigh(std::vector<Node> a[], int vec_size)
     {
         c = pos.neigh(i);
         if (borderCheck(c))
-        { 
+        {
             int costs = 0; // match, mismatch and gap sum-of-pairs cost
             for (unsigned int k = 0; k < pairwise_costs_size; k++)
             {
-                costs += pairCost(i, pairwise_costs[k][0], pairwise_costs[k][1], pairwise_costs[k][2]);           
+                costs += pairCost(i, pairwise_costs[k][0], pairwise_costs[k][1], pairwise_costs[k][2])*pairwise_costs[k][3];
             }
             a[c.get_id(vec_size)].push_back(Node(m_g + costs, c, i));
         }
     }
     return 0;
 }
+
+
 
 #endif
 // This file have a friend function that also need to be templated to max seq

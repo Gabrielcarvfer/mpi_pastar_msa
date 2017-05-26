@@ -19,7 +19,8 @@ class HeuristicHPair
         void destroyInstance();
         void init();
         template <int N> int calculate_h(const Coord<N> &c) const;
-
+        template <int N> int calculateWeighted_h(const Coord<N> &c) const;
+        float ** weightMatrix;
     private:
         static HeuristicHPair instance;
         HeuristicHPair();

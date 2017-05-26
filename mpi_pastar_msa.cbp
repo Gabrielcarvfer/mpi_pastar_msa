@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
+<CodeBlocks_project_file>
+	<FileVersion major="1" minor="6" />
+	<Project>
+		<Option title="mpi_pastar_msa" />
+		<Option makefile_is_custom="1" />
+		<Option pch_mode="2" />
+		<Option compiler="gcc" />
+		<Build>
+			<Target title="Debug">
+				<Option output="bin/pastar" prefix_auto="1" extension_auto="1" />
+				<Option object_output="obj/" />
+				<Option type="1" />
+				<Option compiler="gcc" />
+				<Option parameters="test.fasta" />
+				<Compiler>
+					<Add option="-g" />
+				</Compiler>
+				<MakeCommands>
+					<Build command="$make -f $makefile -j16" />
+					<CompileFile command="$make -f $makefile $file" />
+					<Clean command="$make -f $makefile clean" />
+					<DistClean command="$make -f $makefile distclean$target" />
+					<AskRebuildNeeded command="$make -q -f $makefile " />
+					<SilentBuild command="$make -f $makefile -j16 &gt; $(CMD_NULL)" />
+				</MakeCommands>
+			</Target>
+			<Target title="Release">
+				<Option output="bin/pastar" prefix_auto="1" extension_auto="1" />
+				<Option object_output="obj/" />
+				<Option type="1" />
+				<Option compiler="gcc" />
+				<Compiler>
+					<Add option="-O2" />
+				</Compiler>
+				<Linker>
+					<Add option="-s" />
+				</Linker>
+				<MakeCommands>
+					<Build command="$make -f $makefile -j16" />
+					<CompileFile command="$make -f $makefile $file" />
+					<Clean command="$make -f $makefile clean" />
+					<DistClean command="$make -f $makefile distclean$target" />
+					<AskRebuildNeeded command="$make -q -f $makefile " />
+					<SilentBuild command="$make -f $makefile -j16 &gt; $(CMD_NULL)" />
+				</MakeCommands>
+			</Target>
+		</Build>
+		<Compiler>
+			<Add option="-Wall" />
+			<Add option="-fexceptions" />
+		</Compiler>
+		<Unit filename="pastar/BlockPruner.cpp" />
+		<Unit filename="pastar/Coord.cpp" />
+		<Unit filename="pastar/CoordHash.cpp" />
+		<Unit filename="pastar/Cost.cpp" />
+		<Unit filename="pastar/HeuristicHPair.cpp" />
+		<Unit filename="pastar/Node.cpp" />
+		<Unit filename="pastar/PAStar.cpp" />
+		<Unit filename="pastar/PairAlign.cpp" />
+		<Unit filename="pastar/Sequences.cpp" />
+		<Unit filename="pastar/TimeCounter.cpp" />
+		<Unit filename="pastar/WeightedSP.cpp" />
+		<Unit filename="pastar/backtrace.cpp" />
+		<Unit filename="pastar/include/AStar.h" />
+		<Unit filename="pastar/include/BlockPruner.hpp" />
+		<Unit filename="pastar/include/Coord.h" />
+		<Unit filename="pastar/include/CoordHash.h" />
+		<Unit filename="pastar/include/Cost.h" />
+		<Unit filename="pastar/include/HeuristicHPair.h" />
+		<Unit filename="pastar/include/Node.h" />
+		<Unit filename="pastar/include/PAStar.h" />
+		<Unit filename="pastar/include/PairAlign.h" />
+		<Unit filename="pastar/include/PriorityList.h" />
+		<Unit filename="pastar/include/PriorityTypes.h" />
+		<Unit filename="pastar/include/Sequences.h" />
+		<Unit filename="pastar/include/TimeCounter.h" />
+		<Unit filename="pastar/include/WeightedSP.hpp" />
+		<Unit filename="pastar/include/backtrace.h" />
+		<Unit filename="pastar/include/commonTypes.h" />
+		<Unit filename="pastar/include/lz4sup.h" />
+		<Unit filename="pastar/include/max_seq_helper.h" />
+		<Unit filename="pastar/include/msa_options.h" />
+		<Unit filename="pastar/include/read_fasta.h" />
+		<Unit filename="pastar/lz4sup.cpp" />
+		<Unit filename="pastar/msa_options.cpp" />
+		<Unit filename="pastar/msa_pastar_main.cpp" />
+		<Unit filename="pastar/pastar_functions/PAStarBlockPruner.cpp" />
+		<Unit filename="pastar/pastar_functions/PAStarDistributedBacktrace.cpp" />
+		<Unit filename="pastar/pastar_functions/PAStarMessageProcesser.cpp" />
+		<Unit filename="pastar/pastar_functions/PAStarReceiver.cpp" />
+		<Unit filename="pastar/pastar_functions/PAStarSender.cpp" />
+		<Unit filename="pastar/pastar_functions/PAStarSyncData.cpp" />
+		<Unit filename="pastar/read_fasta.cpp" />
+		<Extensions>
+			<code_completion />
+			<debugger />
+		</Extensions>
+	</Project>
+</CodeBlocks_project_file>

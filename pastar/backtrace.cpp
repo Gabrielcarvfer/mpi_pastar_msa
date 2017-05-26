@@ -84,7 +84,7 @@ Node<N> partial_backtrace_alignment(std::list<char> *alignments, std::map<Coord<
     //Backtrace until find an node from external thread
     do
     {
-      
+
         //std::cout << current.pos.get_id(list_size) << ":" << current << std::endl;
         for (int i = 0; i < N; i++)
         {
@@ -95,7 +95,7 @@ Node<N> partial_backtrace_alignment(std::list<char> *alignments, std::map<Coord<
                 c = '-';
             alignments[i].push_front(c);
         }
-        
+
         id = current.get_parent().get_id(list_size);
         // if next node is remote, stop and return the node
         if ( (id < min) | (id >= max) )

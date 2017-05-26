@@ -50,11 +50,11 @@ ifdef NO_LIB_BOOST
 endif
 
 #ifndef DEBUG
-   CPPFLAGS += -O3 -msse3
+   CPPFLAGS += -O3 
    LDFLAGS += -s
 #else
-    #CPPFLAGS += -g
-    #LDFLAGS += -g
+#    CPPFLAGS += -g
+#    LDFLAGS += -g
 #endif
 
 ifdef PROFILE_GENERATE
@@ -85,10 +85,11 @@ COMMON_CPP_SRCS += \
     $(SRC_DIR)/Sequences.cpp \
     $(SRC_DIR)/TimeCounter.cpp \
     $(SRC_DIR)/lz4sup.cpp \
+    $(SRC_DIR)/WeightedSP.cpp \
 
 PASTAR_SRCS = \
     $(SRC_DIR)/msa_pastar_main.cpp \
-    $(SRC_DIR)/pastar.cpp \
+    $(SRC_DIR)/PAStar.cpp \
 
 INC_PATH += \
     -I$(INC_DIR) \
