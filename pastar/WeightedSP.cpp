@@ -1,5 +1,5 @@
 /*!
- * \authors {Daniel Sundfeld, Gabriel Ferreira}
+ * \authors {Gabriel Ferreira}
  * \copyright MIT License
  *  Mostly rewriting Altschul et al Weighted Sum-of-Pairs code and planning to implement Gotoh's alternative
  *  You can find the original source of MSA in https://www.ncbi.nlm.nih.gov/CBBresearch/Schaffer/msa.html
