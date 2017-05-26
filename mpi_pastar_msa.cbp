@@ -57,7 +57,6 @@
 		<Unit filename="pastar/HeuristicHPair.cpp" />
 		<Unit filename="pastar/Node.cpp" />
 		<Unit filename="pastar/PAStar.cpp" />
-		<Unit filename="pastar/PAStarReceiver.cpp" />
 		<Unit filename="pastar/PairAlign.cpp" />
 		<Unit filename="pastar/Sequences.cpp" />
 		<Unit filename="pastar/TimeCounter.cpp" />

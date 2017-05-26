@@ -33,6 +33,10 @@ void HeuristicHPair::destroyInstance()
     for (std::vector<PairAlign*>::iterator it = mAligns.begin() ; it != mAligns.end(); ++it)
         delete *it;
     mAligns.clear();
+
+    for (int i = 0; i < Sequences::get_seq_num(); i++)
+        delete[] weightMatrix[i];
+    delete[] weightMatrix;
 }
 
 /*!
@@ -75,8 +79,8 @@ int HeuristicHPair::calculate_h(const Coord<N> &c) const
         int x = (*it)->getPair().first;
         int y = (*it)->getPair().second;
 
-        h += (*it)->getScore(c[x], c[y])*weightMatrix[c[x]][c[y]];
-        //std::cout << "x "<<x<<" y "<<y<<" score " << (*it)->getScore(c[x],c[y]) << " weight "<<weightMatrix[c[x]][c[y]]<<std::endl;
+        h += ((*it)->getScore(c[x], c[y])*(int)weightMatrix[x][y]);
+        //std::cout << "x "<<x<<" y "<<y<<" score " << (*it)->getScore(c[x],c[y]) << " weight "<<weightMatrix[x][y]<<std::endl;
     }
     return h;
 }

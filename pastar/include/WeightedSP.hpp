@@ -15,6 +15,8 @@
 #define VERT        1           /* code for traceback */
 #define HORZ        2           /* code for traceback */
 #define GapCost     8
+#define INTERNAL_NODE -1
+#define TREE_ROOT     -2
 
 #define EfectiveGapCost 0//8
 

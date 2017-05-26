@@ -3,7 +3,7 @@
  * \copyright MIT License
  */
 
-//Defines 
+//Defines
 #define MPI_TAG_SEND_COMMON                0
 #define MPI_TAG_REQ_CHECK         0x00FFFFFD
 #define MPI_TAG_ACC_REQ           0x00FFFFFE
@@ -18,7 +18,7 @@
 
 #include <chrono>
 #include <mpi.h>
- 
+
 #include "include/PAStar.h"
 #include "include/backtrace.h"
 #include "include/Coord.h"
@@ -47,9 +47,9 @@
       thread_port_t mach_thread;
       int core = 0;
 
-      for (core = 0; core < 8 * cpu_size; core++) 
+      for (core = 0; core < 8 * cpu_size; core++)
       {
-          if (CPU_ISSET(core, cpu_set)) 
+          if (CPU_ISSET(core, cpu_set))
               break;
       }
 
@@ -70,8 +70,8 @@ PAStar<N>::PAStar(const Node<N> &node_zero, const struct PAStarOpt &opt)
     {
         std::cout << "Running PAStar with: "
         << opt.totalThreads << " threads ("
-        << opt.mpiCommSize << " machines with " 
-        << opt.threads_num << " threads each)," 
+        << opt.mpiCommSize << " machines with "
+        << opt.threads_num << " threads each),"
         << Coord<N>::get_hash_name() << " hash, "
         << Coord<N>::get_hash_shift() << " shift.\n";
     }
@@ -558,7 +558,7 @@ int PAStar<N>::worker(int tid, const Coord<N> &coord_final)
 	//sync all threads from all nodes to prevent problems
 	sync_threads(false);
 
-	
+
 	// check_stop syncs and check if local nodes agreed in local optimum
 	do
 	{

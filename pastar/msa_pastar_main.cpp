@@ -56,7 +56,6 @@ int pa_star_run(const PAStarOpt &opt)
 int main(int argc, char *argv[])
 {
 	//Inicia MPI e comunicador global
-    //MPI_Init(&argc, &argv);
 	int provided = 0;
 	MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided);
 
@@ -129,7 +128,7 @@ int main(int argc, char *argv[])
 
         int lz4Size = pastar_lz4_en( ss.str().c_str(), lz4Data, ss.str().length() );
         //Sending message
-        
+
         //Sending message
         for (i = 1; i < opt.mpiCommSize; i++)
             MPI_Send(*lz4Data, lz4Size, MPI_CHAR, i, 0, MPI_COMM_WORLD);
@@ -157,7 +156,7 @@ int main(int argc, char *argv[])
 
             //Unserialize data into place
             std::istringstream ss(std::string(*buffer, *buffer + len), std::ios_base::binary);
-            
+
             //Free buffer
             delete[] *buffer;
             boost::archive::binary_iarchive ia{ ss };
@@ -172,11 +171,11 @@ int main(int argc, char *argv[])
                 ia & seq;
                 //save sequence to local process
                 sequences->set_seq(seq);
-            }   
+            }
 
             free(buffer);
 
-        
+
     }
 
     //std::cout << opt.mpiRank << ": fase 3" << std::endl;

@@ -50,11 +50,11 @@ ifdef NO_LIB_BOOST
 endif
 
 #ifndef DEBUG
-#   CPPFLAGS += -O3 -msse3
-#   LDFLAGS += -s
+   CPPFLAGS += -O3 
+   LDFLAGS += -s
 #else
-    CPPFLAGS += -g
-    LDFLAGS += -g
+#    CPPFLAGS += -g
+#    LDFLAGS += -g
 #endif
 
 ifdef PROFILE_GENERATE
