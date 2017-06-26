@@ -144,7 +144,8 @@ float convert_path_to_cost(int I, int J,int n, int m, int **dd, int **hh, int **
 void primer(std::vector<std::string> *seq, float *** Dij, float ***scale)
 {
     int    I,J,i,j,Gi,Gj,n,m;
-    int num_seq = seq->size();, max_seq_length = 1000;
+    int num_seq = seq->size();
+    int max_seq_length = 1000;
 
     if (num_seq == 0)
         exit(-1);
